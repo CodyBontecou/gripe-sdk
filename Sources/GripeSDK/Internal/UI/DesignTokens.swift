@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 enum GripeColor {
@@ -41,3 +42,4 @@ enum GripeSpacing {
     static let xl: CGFloat = 20
     static let xxl: CGFloat = 24
 }
+#endif

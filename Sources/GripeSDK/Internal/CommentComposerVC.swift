@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 final class CommentComposerVC: UIViewController {
@@ -290,3 +291,4 @@ final class CommentComposerVC: UIViewController {
         }
     }
 }
+#endif

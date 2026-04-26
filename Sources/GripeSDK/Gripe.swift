@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 public final class Gripe {
@@ -52,3 +53,4 @@ public final class Gripe {
         }
     }
 }
+#endif

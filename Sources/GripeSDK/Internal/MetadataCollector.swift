@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 struct GripeMetadata: Encodable {
@@ -60,3 +61,4 @@ enum MetadataCollector {
         return String(describing: type(of: top))
     }
 }
+#endif

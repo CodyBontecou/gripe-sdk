@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 final class CropRectView: UIView {
@@ -247,3 +248,4 @@ final class CropRectView: UIView {
         }
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 enum TriggerToast {
@@ -149,3 +150,4 @@ private final class ToastView: UIView {
         })
     }
 }
+#endif

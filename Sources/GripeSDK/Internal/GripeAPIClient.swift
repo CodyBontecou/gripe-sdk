@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 enum GripeError: LocalizedError {
@@ -99,3 +100,4 @@ private extension Data {
         append("\r\n".data(using: .utf8)!)
     }
 }
+#endif

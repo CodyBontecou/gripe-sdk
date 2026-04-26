@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 final class SuccessVC: UIViewController {
@@ -303,3 +304,4 @@ final class SuccessVC: UIViewController {
         onFinished()
     }
 }
+#endif

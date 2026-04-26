@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 // MARK: - Buttons
@@ -306,3 +307,4 @@ final class GripeLogoView: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 }
+#endif

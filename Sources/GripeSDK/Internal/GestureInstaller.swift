@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 final class GestureInstaller {
@@ -47,3 +48,4 @@ final class GestureInstaller {
         trigger?()
     }
 }
+#endif

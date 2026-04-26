@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 
 enum CaptureFlow {
@@ -106,3 +107,4 @@ private struct SuccessPayload {
         return nil
     }
 }
+#endif
