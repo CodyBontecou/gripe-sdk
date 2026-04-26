@@ -1,138 +1,292 @@
 import UIKit
 
 final class CommentComposerVC: UIViewController {
+    static let issueSubmittedNotification = Notification.Name("GripeIssueSubmitted")
+
     private let croppedImage: UIImage
     private let onFinished: () -> Void
 
-    private let imageView = UIImageView()
-    private let textView = UITextView()
-    private let placeholderLabel = UILabel()
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+
+    private let titleLabel = UILabel()
+    private let closeButton = UIButton(type: .system)
+
+    private let thumbnailView = UIImageView()
+    private let commentArea = GripeTextArea(placeholder: "Describe what you're seeing\u{2026}")
+    private let titleField = GripeTextField(placeholder: "Short summary")
+
+    private let bugChip = GripeChip(title: "Bug", systemImage: "ant.fill")
+    private let ideaChip = GripeChip(title: "Idea", systemImage: "lightbulb")
+    private let polishChip = GripeChip(title: "Polish", systemImage: "sparkles")
+
+    private let repoSelector: GripeRepoSelector
+    private let submitButton = GripePrimaryButton(title: "Send to GitHub", systemImage: "paperplane.fill")
     private let activity = UIActivityIndicatorView(style: .medium)
-    private lazy var submitItem = UIBarButtonItem(title: "Submit", style: .done, target: self, action: #selector(submitTapped))
 
     init(croppedImage: UIImage, onFinished: @escaping () -> Void) {
         self.croppedImage = croppedImage
         self.onFinished = onFinished
+        let repo = Gripe.shared.configuration?.repository ?? "owner/app-ios"
+        self.repoSelector = GripeRepoSelector(repository: repo)
         super.init(nibName: nil, bundle: nil)
-        title = "New Gripe"
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = GripeColor.background
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .cancel,
-            target: self,
-            action: #selector(cancelTapped)
-        )
-        navigationItem.rightBarButtonItem = submitItem
+        setupScroll()
+        setupHeader()
+        setupContent()
+        setupSubmit()
+        setupActions()
 
-        imageView.image = croppedImage
-        imageView.contentMode = .scaleAspectFit
-        imageView.layer.borderColor = UIColor.separator.cgColor
-        imageView.layer.borderWidth = 1
-        imageView.layer.cornerRadius = 8
-        imageView.clipsToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(imageView)
-
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.delegate = self
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.layer.borderColor = UIColor.separator.cgColor
-        textView.layer.borderWidth = 1
-        textView.layer.cornerRadius = 8
-        textView.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
-        view.addSubview(textView)
-
-        placeholderLabel.text = "Describe what's happening…"
-        placeholderLabel.textColor = .placeholderText
-        placeholderLabel.font = textView.font
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(placeholderLabel)
-
-        activity.translatesAutoresizingMaskIntoConstraints = false
-        activity.hidesWhenStopped = true
-        view.addSubview(activity)
-
-        NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            imageView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            imageView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            imageView.heightAnchor.constraint(equalToConstant: 220),
-
-            textView.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 16),
-            textView.leadingAnchor.constraint(equalTo: imageView.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: imageView.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -16),
-
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 16),
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 13),
-
-            activity.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            activity.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.textView.becomeFirstResponder()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.commentArea.textView.becomeFirstResponder()
         }
     }
 
-    @objc private func cancelTapped() {
+    private func setupScroll() {
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.alwaysBounceVertical = true
+        scrollView.keyboardDismissMode = .interactive
+        view.addSubview(scrollView)
+
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .vertical
+        contentStack.spacing = GripeSpacing.l
+        contentStack.alignment = .fill
+        scrollView.addSubview(contentStack)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: GripeSpacing.xl),
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: GripeSpacing.xl),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -GripeSpacing.xl),
+            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -GripeSpacing.xl),
+            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -GripeSpacing.xl * 2),
+        ])
+    }
+
+    private func setupHeader() {
+        let headerRow = UIView()
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.text = "New GitHub Issue"
+        titleLabel.font = GripeFont.headline()
+        titleLabel.textColor = GripeColor.textPrimary
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(titleLabel)
+
+        closeButton.setImage(
+            UIImage(systemName: "xmark.circle.fill")?
+                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 28, weight: .regular)),
+            for: .normal
+        )
+        closeButton.tintColor = GripeColor.textSecondary
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: headerRow.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -GripeSpacing.s),
+
+            closeButton.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: headerRow.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 32),
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
+
+            headerRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+        ])
+
+        contentStack.addArrangedSubview(headerRow)
+    }
+
+    private func setupContent() {
+        contentStack.addArrangedSubview(makeSection(label: "Comment", control: makeCommentBlock()))
+        contentStack.addArrangedSubview(makeSection(label: "Title", control: titleField))
+        contentStack.addArrangedSubview(makeSection(label: "Tags", control: makeTagsRow()))
+        contentStack.addArrangedSubview(makeSection(label: "Repository", control: repoSelector))
+
+        let spacer = UIView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
+        spacer.heightAnchor.constraint(greaterThanOrEqualToConstant: GripeSpacing.l).isActive = true
+        contentStack.addArrangedSubview(spacer)
+    }
+
+    private func makeSection(label: String, control: UIView) -> UIView {
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = GripeSpacing.s
+        stack.alignment = .fill
+        stack.addArrangedSubview(GripeFieldLabel(label))
+        stack.addArrangedSubview(control)
+        return stack
+    }
+
+    private func makeCommentBlock() -> UIView {
+        let container = UIStackView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.axis = .vertical
+        container.spacing = GripeSpacing.s
+        container.alignment = .leading
+
+        thumbnailView.image = croppedImage
+        thumbnailView.contentMode = .scaleAspectFill
+        thumbnailView.clipsToBounds = true
+        thumbnailView.layer.cornerRadius = 10
+        thumbnailView.layer.borderColor = GripeColor.border.cgColor
+        thumbnailView.layer.borderWidth = 1
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+
+        commentArea.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addArrangedSubview(thumbnailView)
+        container.addArrangedSubview(commentArea)
+
+        NSLayoutConstraint.activate([
+            thumbnailView.widthAnchor.constraint(equalToConstant: 80),
+            thumbnailView.heightAnchor.constraint(equalToConstant: 80),
+
+            commentArea.heightAnchor.constraint(greaterThanOrEqualToConstant: 110),
+            commentArea.widthAnchor.constraint(equalTo: container.widthAnchor),
+        ])
+
+        return container
+    }
+
+    private func makeTagsRow() -> UIView {
+        let row = UIStackView(arrangedSubviews: [bugChip, ideaChip, polishChip])
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.axis = .horizontal
+        row.spacing = GripeSpacing.s
+        row.alignment = .center
+        row.distribution = .fill
+
+        bugChip.isSelectedChip = true
+
+        let trailingSpacer = UIView()
+        trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
+        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(trailingSpacer)
+
+        return row
+    }
+
+    private func setupSubmit() {
+        view.addSubview(submitButton)
+        view.addSubview(activity)
+
+        activity.translatesAutoresizingMaskIntoConstraints = false
+        activity.hidesWhenStopped = true
+
+        NSLayoutConstraint.activate([
+            submitButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: GripeSpacing.xl),
+            submitButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -GripeSpacing.xl),
+            submitButton.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -GripeSpacing.l),
+
+            activity.centerXAnchor.constraint(equalTo: submitButton.centerXAnchor),
+            activity.centerYAnchor.constraint(equalTo: submitButton.centerYAnchor),
+        ])
+
+        scrollView.contentInset.bottom = 80
+        scrollView.verticalScrollIndicatorInsets.bottom = 80
+    }
+
+    private func setupActions() {
+        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        submitButton.addTarget(self, action: #selector(submitTapped), for: .touchUpInside)
+        bugChip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+        ideaChip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+        polishChip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+    }
+
+    @objc private func closeTapped() {
         let onFinished = self.onFinished
         dismiss(animated: true) { onFinished() }
+    }
+
+    @objc private func chipTapped(_ sender: GripeChip) {
+        let chips = [bugChip, ideaChip, polishChip]
+        let willToggleOff = sender.isSelectedChip
+        if willToggleOff {
+            let othersSelected = chips.contains { $0 !== sender && $0.isSelectedChip }
+            guard othersSelected else { return }
+        }
+        sender.isSelectedChip.toggle()
+    }
+
+    private var selectedTags: [String] {
+        var tags: [String] = []
+        if bugChip.isSelectedChip { tags.append(bugChip.title) }
+        if ideaChip.isSelectedChip { tags.append(ideaChip.title) }
+        if polishChip.isSelectedChip { tags.append(polishChip.title) }
+        return tags
     }
 
     @objc private func submitTapped() {
         view.endEditing(true)
         setBusy(true)
-        let comment = textView.text ?? ""
+
+        let titleText = titleField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let commentBody = commentArea.textView.text ?? ""
+        let tags = selectedTags
+        let combinedComment = "\(titleText)\n\nTags: \(tags.joined(separator: ", "))\n\n\(commentBody)"
         let metadata = MetadataCollector.collect()
         let image = croppedImage
+
         Task { [weak self] in
-            let result = await GripeAPIClient.shared.submit(image: image, comment: comment, metadata: metadata)
-            await MainActor.run { self?.handle(result) }
+            let result = await GripeAPIClient.shared.submit(image: image, comment: combinedComment, metadata: metadata)
+            await MainActor.run {
+                self?.handle(result, title: titleText, tags: tags)
+            }
         }
     }
 
     private func setBusy(_ busy: Bool) {
-        submitItem.isEnabled = !busy
-        navigationItem.leftBarButtonItem?.isEnabled = !busy
-        textView.isEditable = !busy
+        submitButton.isEnabled = !busy
+        submitButton.alpha = busy ? 0.5 : 1
+        closeButton.isEnabled = !busy
+        commentArea.textView.isEditable = !busy
+        titleField.textField.isEnabled = !busy
         if busy { activity.startAnimating() } else { activity.stopAnimating() }
     }
 
-    private func handle(_ result: Result<URL, Error>) {
-        setBusy(false)
-        let alert: UIAlertController
+    private func handle(_ result: Result<URL, Error>, title: String, tags: [String]) {
         switch result {
         case .success(let url):
-            alert = UIAlertController(title: "Submitted", message: url.absoluteString, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Open", style: .default) { [weak self] _ in
-                UIApplication.shared.open(url)
-                self?.finish()
-            })
-            alert.addAction(UIAlertAction(title: "Done", style: .cancel) { [weak self] _ in
-                self?.finish()
-            })
+            NotificationCenter.default.post(
+                name: CommentComposerVC.issueSubmittedNotification,
+                object: nil,
+                userInfo: [
+                    "url": url,
+                    "title": title,
+                    "tags": tags,
+                    "image": croppedImage,
+                    "metadata": MetadataCollector.collect(),
+                ]
+            )
+            let onFinished = self.onFinished
+            dismiss(animated: true) { onFinished() }
         case .failure(let error):
-            alert = UIAlertController(title: "Couldn't submit", message: error.localizedDescription, preferredStyle: .alert)
+            setBusy(false)
+            let alert = UIAlertController(
+                title: "Couldn't submit",
+                message: error.localizedDescription,
+                preferredStyle: .alert
+            )
             alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
         }
-        present(alert, animated: true)
-    }
-
-    private func finish() {
-        let onFinished = self.onFinished
-        dismiss(animated: true) { onFinished() }
-    }
-}
-
-extension CommentComposerVC: UITextViewDelegate {
-    func textViewDidChange(_ textView: UITextView) {
-        placeholderLabel.isHidden = !textView.text.isEmpty
     }
 }

@@ -7,18 +7,60 @@ enum CaptureFlow {
             completion()
             return
         }
+
+        TriggerToast.show()
+
         let snapshot = renderSnapshot(of: window)
         let hierarchy = CapturedHierarchy.capture(window: window)
+
+        var pendingSuccess: SuccessPayload?
+        let observer = NotificationCenter.default.addObserver(
+            forName: CommentComposerVC.issueSubmittedNotification,
+            object: nil,
+            queue: .main
+        ) { note in
+            pendingSuccess = SuccessPayload(userInfo: note.userInfo)
+        }
 
         let overlay = SelectorOverlayVC(
             snapshot: snapshot,
             hierarchy: hierarchy,
             windowBounds: window.bounds,
-            onClose: completion
+            onClose: { [weak window] in
+                NotificationCenter.default.removeObserver(observer)
+                guard let payload = pendingSuccess, let window else {
+                    completion()
+                    return
+                }
+                presentSuccess(payload, in: window, completion: completion)
+            }
         )
         overlay.modalPresentationStyle = .overFullScreen
         overlay.modalTransitionStyle = .crossDissolve
         topViewController(for: window)?.present(overlay, animated: true)
+    }
+
+    private static func presentSuccess(_ payload: SuccessPayload, in window: UIWindow, completion: @escaping () -> Void) {
+        let success = SuccessVC(
+            issueURL: payload.url,
+            issueNumber: payload.issueNumber,
+            title: payload.title,
+            croppedImage: payload.image,
+            metadata: payload.metadata,
+            onFinished: { [weak window] in
+                guard let window, let presenter = topViewController(for: window) else {
+                    completion()
+                    return
+                }
+                presenter.dismiss(animated: true) { completion() }
+            }
+        )
+        success.modalPresentationStyle = .pageSheet
+        if let sheet = success.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+        }
+        topViewController(for: window)?.present(success, animated: true)
     }
 
     private static func activeScene() -> UIWindowScene? {
@@ -37,5 +79,33 @@ enum CaptureFlow {
         var top = window.rootViewController
         while let presented = top?.presentedViewController { top = presented }
         return top
+    }
+}
+
+private struct SuccessPayload {
+    let url: URL
+    let title: String
+    let issueNumber: Int?
+    let image: UIImage?
+    let metadata: GripeMetadata
+
+    init?(userInfo: [AnyHashable: Any]?) {
+        guard let info = userInfo,
+              let url = info["url"] as? URL,
+              let metadata = info["metadata"] as? GripeMetadata
+        else { return nil }
+        self.url = url
+        self.title = info["title"] as? String ?? ""
+        self.image = info["image"] as? UIImage
+        self.metadata = metadata
+        self.issueNumber = SuccessPayload.parseIssueNumber(from: url)
+    }
+
+    private static func parseIssueNumber(from url: URL) -> Int? {
+        let parts = url.pathComponents.reversed()
+        for part in parts {
+            if let n = Int(part) { return n }
+        }
+        return nil
     }
 }

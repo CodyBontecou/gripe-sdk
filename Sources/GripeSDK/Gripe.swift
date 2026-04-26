@@ -5,11 +5,13 @@ public final class Gripe {
         public var apiKey: String
         public var endpoint: URL
         public var dryRun: Bool
+        public var repository: String?
 
-        public init(apiKey: String, endpoint: URL, dryRun: Bool) {
+        public init(apiKey: String, endpoint: URL, dryRun: Bool, repository: String? = nil) {
             self.apiKey = apiKey
             self.endpoint = endpoint
             self.dryRun = dryRun
+            self.repository = repository
         }
     }
 
@@ -24,9 +26,10 @@ public final class Gripe {
     public static func start(
         apiKey: String,
         endpoint: URL = URL(string: "https://api.gripe.dev/v1/reports")!,
-        dryRun: Bool = false
+        dryRun: Bool = false,
+        repository: String? = nil
     ) {
-        shared.configuration = Configuration(apiKey: apiKey, endpoint: endpoint, dryRun: dryRun)
+        shared.configuration = Configuration(apiKey: apiKey, endpoint: endpoint, dryRun: dryRun, repository: repository)
         shared.installer.install { [weak shared = shared] in
             shared?.handleTrigger()
         }

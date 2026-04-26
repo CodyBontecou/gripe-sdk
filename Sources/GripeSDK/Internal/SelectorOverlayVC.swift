@@ -11,10 +11,11 @@ final class SelectorOverlayVC: UIViewController {
     private let imageView = UIImageView()
     private let highlighter = ElementHighlighter()
     private let cropView = CropRectView()
-    private let modeControl = UISegmentedControl(items: ["Element", "Crop"])
-    private let topBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+
+    private let titlePill = PaddedLabel()
     private let cancelButton = UIButton(type: .system)
-    private let nextButton = UIButton(type: .system)
+    private let modeTogglePill = UIButton(type: .system)
+    private let nextButton = GripePrimaryButton(title: "Next", systemImage: "arrow.right")
     private let hint = UILabel()
 
     private var mode: Mode = .element
@@ -48,34 +49,17 @@ final class SelectorOverlayVC: UIViewController {
         cropView.isHidden = true
         view.addSubview(cropView)
 
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(topBar)
+        configureTitlePill()
+        configureCancelButton()
+        configureModeTogglePill()
+        configureNextButton()
+        configureHint()
 
-        cancelButton.setTitle("Cancel", for: .normal)
-        cancelButton.tintColor = .white
-        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
-        cancelButton.translatesAutoresizingMaskIntoConstraints = false
-
-        nextButton.setTitle("Next", for: .normal)
-        nextButton.tintColor = .white
-        nextButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
-        nextButton.translatesAutoresizingMaskIntoConstraints = false
-
-        modeControl.selectedSegmentIndex = 0
-        modeControl.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
-        modeControl.translatesAutoresizingMaskIntoConstraints = false
-
-        topBar.contentView.addSubview(cancelButton)
-        topBar.contentView.addSubview(modeControl)
-        topBar.contentView.addSubview(nextButton)
-
-        hint.text = "Tap a UI element"
-        hint.textColor = UIColor.white.withAlphaComponent(0.85)
-        hint.font = .preferredFont(forTextStyle: .footnote)
-        hint.textAlignment = .center
-        hint.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(titlePill)
+        view.addSubview(cancelButton)
+        view.addSubview(modeTogglePill)
         view.addSubview(hint)
+        view.addSubview(nextButton)
 
         let imageRect: () -> CGRect = { [weak self] in self?.displayedImageRect() ?? .zero }
         highlighter.configure(
@@ -84,6 +68,10 @@ final class SelectorOverlayVC: UIViewController {
             imageRect: imageRect
         )
         cropView.configure(imageRect: imageRect)
+
+        let selectionChanged: () -> Void = { [weak self] in self?.updateNextButtonVisibility() }
+        highlighter.onSelectionChanged = selectionChanged
+        cropView.onSelectionChanged = selectionChanged
 
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -101,25 +89,74 @@ final class SelectorOverlayVC: UIViewController {
             cropView.topAnchor.constraint(equalTo: view.topAnchor),
             cropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBar.topAnchor.constraint(equalTo: view.topAnchor),
-            topBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 56),
+            titlePill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            titlePill.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: GripeSpacing.s),
 
-            cancelButton.leadingAnchor.constraint(equalTo: topBar.contentView.leadingAnchor, constant: 16),
-            cancelButton.bottomAnchor.constraint(equalTo: topBar.contentView.bottomAnchor, constant: -10),
+            cancelButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
+            cancelButton.centerYAnchor.constraint(equalTo: titlePill.centerYAnchor),
 
-            nextButton.trailingAnchor.constraint(equalTo: topBar.contentView.trailingAnchor, constant: -16),
-            nextButton.bottomAnchor.constraint(equalTo: topBar.contentView.bottomAnchor, constant: -10),
+            modeTogglePill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            modeTogglePill.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -GripeSpacing.s),
 
-            modeControl.centerXAnchor.constraint(equalTo: topBar.contentView.centerXAnchor),
-            modeControl.centerYAnchor.constraint(equalTo: cancelButton.centerYAnchor),
-            modeControl.widthAnchor.constraint(equalToConstant: 180),
+            hint.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: GripeSpacing.l),
+            hint.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -GripeSpacing.l),
+            hint.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -GripeSpacing.l),
 
-            hint.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            hint.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            hint.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            nextButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
+            nextButton.bottomAnchor.constraint(equalTo: modeTogglePill.topAnchor, constant: -GripeSpacing.m),
         ])
+
+        updateNextButtonVisibility()
+    }
+
+    private func configureTitlePill() {
+        titlePill.text = "Select an area"
+        titlePill.font = GripeFont.bodyMedium()
+        titlePill.textColor = GripeColor.textPrimary
+        titlePill.backgroundColor = .white
+        titlePill.textInsets = UIEdgeInsets(top: 10, left: GripeSpacing.l, bottom: 10, right: GripeSpacing.l)
+        titlePill.layer.cornerRadius = 16
+        titlePill.layer.borderWidth = 1
+        titlePill.layer.borderColor = GripeColor.border.cgColor
+        titlePill.layer.masksToBounds = true
+        titlePill.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func configureCancelButton() {
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.setTitleColor(GripeColor.primary, for: .normal)
+        cancelButton.titleLabel?.font = GripeFont.bodyMedium()
+        cancelButton.tintColor = GripeColor.primary
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func configureModeTogglePill() {
+        modeTogglePill.setTitle("Switch to Crop", for: .normal)
+        modeTogglePill.setTitleColor(GripeColor.primary, for: .normal)
+        modeTogglePill.titleLabel?.font = GripeFont.bodyMedium()
+        modeTogglePill.backgroundColor = .white
+        modeTogglePill.contentEdgeInsets = UIEdgeInsets(top: 10, left: GripeSpacing.l, bottom: 10, right: GripeSpacing.l)
+        modeTogglePill.layer.cornerRadius = 16
+        modeTogglePill.layer.borderWidth = 1
+        modeTogglePill.layer.borderColor = GripeColor.border.cgColor
+        modeTogglePill.layer.masksToBounds = true
+        modeTogglePill.addTarget(self, action: #selector(toggleMode), for: .touchUpInside)
+        modeTogglePill.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func configureNextButton() {
+        nextButton.translatesAutoresizingMaskIntoConstraints = false
+        nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
+        nextButton.isHidden = true
+    }
+
+    private func configureHint() {
+        hint.text = "Tap an element"
+        hint.textColor = UIColor.white.withAlphaComponent(0.85)
+        hint.font = GripeFont.caption()
+        hint.textAlignment = .center
+        hint.translatesAutoresizingMaskIntoConstraints = false
     }
 
     override func viewDidLayoutSubviews() {
@@ -128,7 +165,7 @@ final class SelectorOverlayVC: UIViewController {
         cropView.refreshIfNeeded()
     }
 
-    private func displayedImageRect() -> CGRect {
+    func displayedImageRect() -> CGRect {
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0 else {
             return imageView.frame
         }
@@ -142,12 +179,24 @@ final class SelectorOverlayVC: UIViewController {
         return CGRect(origin: origin, size: displaySize)
     }
 
-    @objc private func modeChanged() {
-        mode = Mode(rawValue: modeControl.selectedSegmentIndex) ?? .element
+    @objc private func toggleMode() {
+        mode = (mode == .element) ? .crop : .element
         highlighter.isHidden = mode != .element
         cropView.isHidden = mode != .crop
-        hint.text = mode == .element ? "Tap a UI element" : "Drag to draw a region"
+        hint.text = mode == .element ? "Tap an element" : "Drag to draw an area"
+        modeTogglePill.setTitle(mode == .element ? "Switch to Crop" : "Switch to Element", for: .normal)
         if mode == .crop { cropView.refreshIfNeeded() }
+        updateNextButtonVisibility()
+    }
+
+    private func updateNextButtonVisibility() {
+        let rect: CGRect?
+        switch mode {
+        case .element: rect = highlighter.selectedRectInView
+        case .crop: rect = cropView.cropRectInView
+        }
+        let hasSelection = rect.map { $0.width > 4 && $0.height > 4 } ?? false
+        nextButton.isHidden = !hasSelection
     }
 
     @objc private func cancelTapped() {
@@ -168,9 +217,16 @@ final class SelectorOverlayVC: UIViewController {
         let composer = CommentComposerVC(croppedImage: cropped, onFinished: { [weak self] in
             self?.finish(animated: false)
         })
-        let nav = UINavigationController(rootViewController: composer)
-        nav.modalPresentationStyle = .formSheet
-        present(nav, animated: true)
+        if #available(iOS 15.0, *) {
+            composer.modalPresentationStyle = .pageSheet
+            if let sheet = composer.sheetPresentationController {
+                sheet.detents = [.large()]
+                sheet.prefersGrabberVisible = true
+            }
+        } else {
+            composer.modalPresentationStyle = .formSheet
+        }
+        present(composer, animated: true)
     }
 
     private func flashHint(text: String) {
@@ -206,5 +262,32 @@ final class SelectorOverlayVC: UIViewController {
         dismiss(animated: animated) {
             onClose()
         }
+    }
+}
+
+private final class PaddedLabel: UILabel {
+    var textInsets: UIEdgeInsets = .zero
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: textInsets))
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(
+            width: size.width + textInsets.left + textInsets.right,
+            height: size.height + textInsets.top + textInsets.bottom
+        )
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let inner = super.sizeThatFits(CGSize(
+            width: size.width - textInsets.left - textInsets.right,
+            height: size.height - textInsets.top - textInsets.bottom
+        ))
+        return CGSize(
+            width: inner.width + textInsets.left + textInsets.right,
+            height: inner.height + textInsets.top + textInsets.bottom
+        )
     }
 }
