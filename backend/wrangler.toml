@@ -1,0 +1,14 @@
+name = "gripe-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[[r2_buckets]]
+binding = "GRIPE_IMAGES"
+bucket_name = "gripe-images"
+
+# Public env vars. Secrets (GRIPE_API_KEY, GITHUB_TOKEN) go through:
+#   wrangler secret put GRIPE_API_KEY
+#   wrangler secret put GITHUB_TOKEN
+[vars]
+GITHUB_REPO = "your-org/your-repo"
+R2_PUBLIC_BASE = "https://pub-changeme.r2.dev"

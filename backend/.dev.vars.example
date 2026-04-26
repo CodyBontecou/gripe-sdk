@@ -1,0 +1,4 @@
+GRIPE_API_KEY=dev-test-key
+GITHUB_TOKEN=ghp_replace_me
+GITHUB_REPO=your-org/your-repo
+R2_PUBLIC_BASE=http://localhost:8787/images
