@@ -7,6 +7,8 @@ final class SelectorOverlayVC: UIViewController {
 
     private let imageView = UIImageView()
     private let cropView = CropRectView()
+    private let previewTapView = UIView()
+    private weak var presentedComposer: CommentComposerVC?
 
     private let topBar = UIView()
     private let topBarBlur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
@@ -40,6 +42,14 @@ final class SelectorOverlayVC: UIViewController {
         cropView.backgroundColor = .clear
         view.addSubview(cropView)
 
+        previewTapView.translatesAutoresizingMaskIntoConstraints = false
+        previewTapView.backgroundColor = .clear
+        previewTapView.isHidden = true
+        previewTapView.addGestureRecognizer(
+            UITapGestureRecognizer(target: self, action: #selector(previewTapped))
+        )
+        view.addSubview(previewTapView)
+
         configureTopBar()
         view.addSubview(topBar)
 
@@ -57,6 +67,11 @@ final class SelectorOverlayVC: UIViewController {
             cropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             cropView.topAnchor.constraint(equalTo: view.topAnchor),
             cropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            previewTapView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            previewTapView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            previewTapView.topAnchor.constraint(equalTo: view.topAnchor),
+            previewTapView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             topBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: GripeSpacing.s),
@@ -247,8 +262,8 @@ final class SelectorOverlayVC: UIViewController {
         let annotation = AnnotationVC(
             image: cropped,
             onCancel: {},
-            onDone: { [weak self] annotated in
-                self?.presentComposer(with: annotated)
+            onDone: { [weak self] annotated, document in
+                self?.presentComposer(baseImage: cropped, annotated: annotated, document: document)
             }
         )
         annotation.modalPresentationStyle = .overFullScreen
@@ -256,20 +271,43 @@ final class SelectorOverlayVC: UIViewController {
         present(annotation, animated: true)
     }
 
-    private func presentComposer(with image: UIImage) {
-        let composer = CommentComposerVC(croppedImage: image, onFinished: { [weak self] in
-            self?.finish(animated: false)
-        })
+    private func presentComposer(baseImage: UIImage, annotated: UIImage, document: AnnotationDocument) {
+        enterPreviewMode(annotated: annotated)
+        let composer = CommentComposerVC(
+            baseImage: baseImage,
+            annotatedImage: annotated,
+            document: document,
+            onFinished: { [weak self] in
+                self?.finish(animated: false)
+            }
+        )
+        composer.onAnnotationUpdated = { [weak self] image in
+            self?.imageView.image = image
+        }
+        presentedComposer = composer
         if #available(iOS 15.0, *) {
             composer.modalPresentationStyle = .pageSheet
             if let sheet = composer.sheetPresentationController {
-                sheet.detents = [.large()]
+                sheet.detents = [.medium(), .large()]
                 sheet.prefersGrabberVisible = true
+                sheet.largestUndimmedDetentIdentifier = .medium
+                sheet.prefersScrollingExpandsWhenScrolledToEdge = false
             }
         } else {
             composer.modalPresentationStyle = .formSheet
         }
         present(composer, animated: true)
+    }
+
+    private func enterPreviewMode(annotated: UIImage) {
+        imageView.image = annotated
+        cropView.isHidden = true
+        topBar.isHidden = true
+        previewTapView.isHidden = false
+    }
+
+    @objc private func previewTapped() {
+        presentedComposer?.reopenAnnotation()
     }
 
     private func crop(image: UIImage, rectInView: CGRect) -> UIImage? {

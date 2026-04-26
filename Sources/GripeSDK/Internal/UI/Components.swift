@@ -127,72 +127,15 @@ final class GripeChip: UIControl {
     }
 }
 
-// MARK: - Repository selector
-
-final class GripeRepoSelector: UIControl {
-    private let icon = UIImageView()
-    private let label = UILabel()
-    private let chevron = UIImageView()
-
-    var repository: String = "owner/app-ios" {
-        didSet { label.text = repository }
-    }
-
-    init(repository: String) {
-        self.repository = repository
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = GripeColor.surface
-        layer.cornerRadius = GripeRadius.field
-        layer.borderColor = GripeColor.border.cgColor
-        layer.borderWidth = 1
-
-        icon.image = UIImage(systemName: "chevron.left.forwardslash.chevron.right")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
-        icon.tintColor = GripeColor.textPrimary
-        icon.contentMode = .scaleAspectFit
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(icon)
-
-        label.text = repository
-        label.font = GripeFont.bodyMedium()
-        label.textColor = GripeColor.textPrimary
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-
-        chevron.image = UIImage(systemName: "chevron.right")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold))
-        chevron.tintColor = GripeColor.textSecondary
-        chevron.contentMode = .scaleAspectFit
-        chevron.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(chevron)
-
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 22),
-            icon.heightAnchor.constraint(equalToConstant: 22),
-
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            heightAnchor.constraint(equalToConstant: 52),
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
-
-    override var isHighlighted: Bool { didSet { alpha = isHighlighted ? 0.6 : 1 } }
-}
-
 // MARK: - Single-line text field
 
 final class GripeTextField: UIView {
     let textField = UITextField()
+    private let maxCount: Int?
+    private let counterLabel = UILabel()
 
-    init(placeholder: String) {
+    init(placeholder: String, maxCount: Int? = nil) {
+        self.maxCount = maxCount
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = GripeColor.surface
@@ -209,15 +152,40 @@ final class GripeTextField: UIView {
         textField.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textField)
 
+        let textTrailing: NSLayoutConstraint
+        if let maxCount {
+            counterLabel.font = GripeFont.caption()
+            counterLabel.textColor = GripeColor.textSecondary
+            counterLabel.text = "0/\(maxCount)"
+            counterLabel.textAlignment = .right
+            counterLabel.translatesAutoresizingMaskIntoConstraints = false
+            counterLabel.setContentHuggingPriority(.required, for: .horizontal)
+            counterLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+            addSubview(counterLabel)
+            textField.addTarget(self, action: #selector(textChanged), for: .editingChanged)
+            textTrailing = textField.trailingAnchor.constraint(equalTo: counterLabel.leadingAnchor, constant: -8)
+            NSLayoutConstraint.activate([
+                counterLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+                counterLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+        } else {
+            textTrailing = textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14)
+        }
+
         NSLayoutConstraint.activate([
             textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            textTrailing,
             textField.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             heightAnchor.constraint(equalToConstant: 48),
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    @objc private func textChanged() {
+        guard let maxCount else { return }
+        counterLabel.text = "\(textField.text?.count ?? 0)/\(maxCount)"
+    }
 }
 
 // MARK: - Multi-line comment area
@@ -225,10 +193,13 @@ final class GripeTextField: UIView {
 final class GripeTextArea: UIView, UITextViewDelegate {
     let textView = UITextView()
     private let placeholderLabel = UILabel()
+    private let counterLabel = UILabel()
+    private let maxCount: Int?
 
     var onChange: ((String) -> Void)?
 
-    init(placeholder: String) {
+    init(placeholder: String, maxCount: Int? = nil) {
+        self.maxCount = maxCount
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = GripeColor.surface
@@ -240,7 +211,8 @@ final class GripeTextArea: UIView, UITextViewDelegate {
         textView.textColor = GripeColor.textPrimary
         textView.backgroundColor = .clear
         textView.delegate = self
-        textView.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
+        let bottomInset: CGFloat = maxCount != nil ? 26 : 12
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: bottomInset, right: 10)
         textView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textView)
 
@@ -259,11 +231,26 @@ final class GripeTextArea: UIView, UITextViewDelegate {
             placeholderLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             placeholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: 14),
         ])
+
+        if let maxCount {
+            counterLabel.font = GripeFont.caption()
+            counterLabel.textColor = GripeColor.textSecondary
+            counterLabel.text = "0/\(maxCount)"
+            counterLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(counterLabel)
+            NSLayoutConstraint.activate([
+                counterLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+                counterLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            ])
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     func textViewDidChange(_ textView: UITextView) {
         placeholderLabel.isHidden = !textView.text.isEmpty
+        if let maxCount {
+            counterLabel.text = "\(textView.text.count)/\(maxCount)"
+        }
         onChange?(textView.text)
     }
 }

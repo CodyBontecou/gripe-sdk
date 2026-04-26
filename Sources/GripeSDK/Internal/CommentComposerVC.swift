@@ -4,32 +4,37 @@ import UIKit
 final class CommentComposerVC: UIViewController {
     static let issueSubmittedNotification = Notification.Name("GripeIssueSubmitted")
 
-    private let croppedImage: UIImage
+    private let baseImage: UIImage
+    private var croppedImage: UIImage
+    private var annotationDocument: AnnotationDocument
     private let onFinished: () -> Void
+    var onAnnotationUpdated: ((UIImage) -> Void)?
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
 
     private let titleLabel = UILabel()
-    private let closeButton = UIButton(type: .system)
 
-    private let thumbnailView = UIImageView()
-    private let commentArea = GripeTextArea(placeholder: "Describe what you're seeing\u{2026}")
-    private let titleField = GripeTextField(placeholder: "Short summary")
+    private let commentArea = GripeTextArea(placeholder: "Describe what you're seeing\u{2026}", maxCount: 1000)
+    private let titleField = GripeTextField(placeholder: "Short summary", maxCount: 100)
 
     private let bugChip = GripeChip(title: "Bug", systemImage: "ant.fill")
     private let ideaChip = GripeChip(title: "Idea", systemImage: "lightbulb")
     private let polishChip = GripeChip(title: "Polish", systemImage: "sparkles")
 
-    private let repoSelector: GripeRepoSelector
     private let submitButton = GripePrimaryButton(title: "Send to GitHub", systemImage: "paperplane.fill")
     private let activity = UIActivityIndicatorView(style: .medium)
 
-    init(croppedImage: UIImage, onFinished: @escaping () -> Void) {
-        self.croppedImage = croppedImage
+    init(
+        baseImage: UIImage,
+        annotatedImage: UIImage,
+        document: AnnotationDocument,
+        onFinished: @escaping () -> Void
+    ) {
+        self.baseImage = baseImage
+        self.croppedImage = annotatedImage
+        self.annotationDocument = document
         self.onFinished = onFinished
-        let repo = Gripe.shared.configuration?.repository ?? "owner/app-ios"
-        self.repoSelector = GripeRepoSelector(repository: repo)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -77,45 +82,19 @@ final class CommentComposerVC: UIViewController {
     }
 
     private func setupHeader() {
-        let headerRow = UIView()
-        headerRow.translatesAutoresizingMaskIntoConstraints = false
-
         titleLabel.text = "New GitHub Issue"
         titleLabel.font = GripeFont.headline()
         titleLabel.textColor = GripeColor.textPrimary
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.addSubview(titleLabel)
-
-        closeButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?
-                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 28, weight: .regular)),
-            for: .normal
-        )
-        closeButton.tintColor = GripeColor.textSecondary
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.addSubview(closeButton)
-
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: headerRow.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -GripeSpacing.s),
-
-            closeButton.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
-            closeButton.centerYAnchor.constraint(equalTo: headerRow.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 32),
-            closeButton.heightAnchor.constraint(equalToConstant: 32),
-
-            headerRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
-        ])
-
-        contentStack.addArrangedSubview(headerRow)
+        contentStack.addArrangedSubview(titleLabel)
     }
 
     private func setupContent() {
-        contentStack.addArrangedSubview(makeSection(label: "Comment", control: makeCommentBlock()))
+        contentStack.addArrangedSubview(makeSection(label: "Comment", control: commentArea))
         contentStack.addArrangedSubview(makeSection(label: "Title", control: titleField))
         contentStack.addArrangedSubview(makeSection(label: "Tags", control: makeTagsRow()))
-        contentStack.addArrangedSubview(makeSection(label: "Repository", control: repoSelector))
+
+        commentArea.heightAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
 
         let spacer = UIView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
@@ -133,37 +112,6 @@ final class CommentComposerVC: UIViewController {
         stack.addArrangedSubview(GripeFieldLabel(label))
         stack.addArrangedSubview(control)
         return stack
-    }
-
-    private func makeCommentBlock() -> UIView {
-        let container = UIStackView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.axis = .vertical
-        container.spacing = GripeSpacing.s
-        container.alignment = .leading
-
-        thumbnailView.image = croppedImage
-        thumbnailView.contentMode = .scaleAspectFill
-        thumbnailView.clipsToBounds = true
-        thumbnailView.layer.cornerRadius = 10
-        thumbnailView.layer.borderColor = GripeColor.border.cgColor
-        thumbnailView.layer.borderWidth = 1
-        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
-
-        commentArea.translatesAutoresizingMaskIntoConstraints = false
-
-        container.addArrangedSubview(thumbnailView)
-        container.addArrangedSubview(commentArea)
-
-        NSLayoutConstraint.activate([
-            thumbnailView.widthAnchor.constraint(equalToConstant: 80),
-            thumbnailView.heightAnchor.constraint(equalToConstant: 80),
-
-            commentArea.heightAnchor.constraint(greaterThanOrEqualToConstant: 110),
-            commentArea.widthAnchor.constraint(equalTo: container.widthAnchor),
-        ])
-
-        return container
     }
 
     private func makeTagsRow() -> UIView {
@@ -205,16 +153,28 @@ final class CommentComposerVC: UIViewController {
     }
 
     private func setupActions() {
-        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         submitButton.addTarget(self, action: #selector(submitTapped), for: .touchUpInside)
         bugChip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
         ideaChip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
         polishChip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
     }
 
-    @objc private func closeTapped() {
-        let onFinished = self.onFinished
-        dismiss(animated: true) { onFinished() }
+    func reopenAnnotation() {
+        view.endEditing(true)
+        let annotation = AnnotationVC(
+            image: baseImage,
+            document: annotationDocument,
+            onCancel: {},
+            onDone: { [weak self] annotated, document in
+                guard let self else { return }
+                self.croppedImage = annotated
+                self.annotationDocument = document
+                self.onAnnotationUpdated?(annotated)
+            }
+        )
+        annotation.modalPresentationStyle = .overFullScreen
+        annotation.modalTransitionStyle = .crossDissolve
+        present(annotation, animated: true)
     }
 
     @objc private func chipTapped(_ sender: GripeChip) {
@@ -257,7 +217,6 @@ final class CommentComposerVC: UIViewController {
     private func setBusy(_ busy: Bool) {
         submitButton.isEnabled = !busy
         submitButton.alpha = busy ? 0.5 : 1
-        closeButton.isEnabled = !busy
         commentArea.textView.isEditable = !busy
         titleField.textField.isEnabled = !busy
         if busy { activity.startAnimating() } else { activity.stopAnimating() }

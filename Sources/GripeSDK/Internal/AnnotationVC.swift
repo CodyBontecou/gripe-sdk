@@ -41,6 +41,13 @@ private enum HistoryStep {
     case modify(id: UUID, before: Annotation, after: Annotation)
 }
 
+struct AnnotationDocument {
+    fileprivate var annotations: [Annotation] = []
+    fileprivate var undoStack: [HistoryStep] = []
+    fileprivate var redoStack: [HistoryStep] = []
+    init() {}
+}
+
 private enum Corner { case tl, tr, bl, br }
 private enum ArrowEnd { case from, to }
 
@@ -159,6 +166,27 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
     func selectedAnnotationColor() -> UIColor? {
         guard let id = selectedID else { return nil }
         return annotations.first(where: { $0.id == id })?.color
+    }
+
+    func loadDocument(_ document: AnnotationDocument) {
+        commitLiveText()
+        annotations = document.annotations
+        undoStack = document.undoStack
+        redoStack = document.redoStack
+        selectedID = nil
+        activeDrag = nil
+        inProgress = nil
+        setNeedsDisplay()
+        onChange?()
+    }
+
+    func currentDocument() -> AnnotationDocument {
+        commitLiveText()
+        var doc = AnnotationDocument()
+        doc.annotations = annotations
+        doc.undoStack = undoStack
+        doc.redoStack = redoStack
+        return doc
     }
 
     func render() -> UIImage {
@@ -795,8 +823,9 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
 
 final class AnnotationVC: UIViewController {
     private let baseImage: UIImage
+    private let initialDocument: AnnotationDocument
     private let onCancel: () -> Void
-    private let onDone: (UIImage) -> Void
+    private let onDone: (UIImage, AnnotationDocument) -> Void
 
     private let canvasView = AnnotationCanvasView()
 
@@ -817,8 +846,14 @@ final class AnnotationVC: UIViewController {
     private var toolButtons: [UIButton] = []
     private var colorButtons: [UIButton] = []
 
-    init(image: UIImage, onCancel: @escaping () -> Void, onDone: @escaping (UIImage) -> Void) {
+    init(
+        image: UIImage,
+        document: AnnotationDocument = AnnotationDocument(),
+        onCancel: @escaping () -> Void,
+        onDone: @escaping (UIImage, AnnotationDocument) -> Void
+    ) {
         self.baseImage = image
+        self.initialDocument = document
         self.onCancel = onCancel
         self.onDone = onDone
         super.init(nibName: nil, bundle: nil)
@@ -839,6 +874,7 @@ final class AnnotationVC: UIViewController {
         }
         canvasView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(canvasView)
+        canvasView.loadDocument(initialDocument)
 
         configureTopBar()
         configurePalette()
@@ -1143,8 +1179,9 @@ final class AnnotationVC: UIViewController {
 
     @objc private func doneTapped() {
         let result = canvasView.render()
+        let document = canvasView.currentDocument()
         let onDone = self.onDone
-        dismiss(animated: true) { onDone(result) }
+        dismiss(animated: true) { onDone(result, document) }
     }
 }
 #endif
