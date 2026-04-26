@@ -9,7 +9,12 @@ final class CropRectView: UIView {
     private let outline = CAShapeLayer()
     private let dim = CAShapeLayer()
     private var cornerHandles: [CAShapeLayer] = []
-    private var startPoint: CGPoint?
+    private var dragMode: DragMode?
+
+    private enum DragMode {
+        case create(start: CGPoint)
+        case move(initialRect: CGRect, startTouch: CGPoint)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -60,25 +65,42 @@ final class CropRectView: UIView {
 
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
         guard let imageRect = imageRectProvider?() else { return }
-        let pt = clamp(pan.location(in: self), to: imageRect)
+        let raw = pan.location(in: self)
+        let pt = clamp(raw, to: imageRect)
         switch pan.state {
         case .began:
-            startPoint = pt
-            cropRectInView = CGRect(origin: pt, size: .zero)
+            if let existing = cropRectInView, existing.contains(raw) {
+                dragMode = .move(initialRect: existing, startTouch: raw)
+            } else {
+                dragMode = .create(start: pt)
+                cropRectInView = CGRect(origin: pt, size: .zero)
+            }
         case .changed:
-            guard let start = startPoint else { return }
-            cropRectInView = CGRect(
-                x: min(start.x, pt.x),
-                y: min(start.y, pt.y),
-                width: abs(pt.x - start.x),
-                height: abs(pt.y - start.y)
-            )
+            switch dragMode {
+            case .create(let start):
+                cropRectInView = CGRect(
+                    x: min(start.x, pt.x),
+                    y: min(start.y, pt.y),
+                    width: abs(pt.x - start.x),
+                    height: abs(pt.y - start.y)
+                )
+            case .move(let initialRect, let startTouch):
+                let dx = raw.x - startTouch.x
+                let dy = raw.y - startTouch.y
+                let maxX = imageRect.maxX - initialRect.width
+                let maxY = imageRect.maxY - initialRect.height
+                let originX = min(max(initialRect.minX + dx, imageRect.minX), maxX)
+                let originY = min(max(initialRect.minY + dy, imageRect.minY), maxY)
+                cropRectInView = CGRect(origin: CGPoint(x: originX, y: originY), size: initialRect.size)
+            case .none:
+                break
+            }
             onSelectionChanged?()
         case .ended:
-            startPoint = nil
+            dragMode = nil
             onSelectionChanged?()
         case .cancelled, .failed:
-            startPoint = nil
+            dragMode = nil
         default:
             break
         }
