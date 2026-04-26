@@ -17,6 +17,7 @@ final class CommentComposerVC: UIViewController {
 
     private let commentArea = GripeTextArea(placeholder: "Describe what you're seeing\u{2026}", maxCount: 1000)
     private let titleField = GripeTextField(placeholder: "Short summary", maxCount: 100)
+    private let tagsField = GripeTextField(placeholder: "comma-separated tags")
 
     private let bugChip = GripeChip(title: "Bug", systemImage: "ant.fill")
     private let ideaChip = GripeChip(title: "Idea", systemImage: "lightbulb")
@@ -90,9 +91,9 @@ final class CommentComposerVC: UIViewController {
     }
 
     private func setupContent() {
-        contentStack.addArrangedSubview(makeSection(label: "Comment", control: commentArea))
         contentStack.addArrangedSubview(makeSection(label: "Title", control: titleField))
-        contentStack.addArrangedSubview(makeSection(label: "Tags", control: makeTagsRow()))
+        contentStack.addArrangedSubview(makeSection(label: "Description", control: commentArea))
+        contentStack.addArrangedSubview(makeSection(label: "Tags", control: makeTagsBlock()))
 
         commentArea.heightAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
 
@@ -114,22 +115,31 @@ final class CommentComposerVC: UIViewController {
         return stack
     }
 
-    private func makeTagsRow() -> UIView {
-        let row = UIStackView(arrangedSubviews: [bugChip, ideaChip, polishChip])
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.axis = .horizontal
-        row.spacing = GripeSpacing.s
-        row.alignment = .center
-        row.distribution = .fill
+    private func makeTagsBlock() -> UIView {
+        let chipsRow = UIStackView(arrangedSubviews: [bugChip, ideaChip, polishChip])
+        chipsRow.translatesAutoresizingMaskIntoConstraints = false
+        chipsRow.axis = .horizontal
+        chipsRow.spacing = GripeSpacing.s
+        chipsRow.alignment = .center
+        chipsRow.distribution = .fill
 
         bugChip.isSelectedChip = true
 
         let trailingSpacer = UIView()
         trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
         trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.addArrangedSubview(trailingSpacer)
+        chipsRow.addArrangedSubview(trailingSpacer)
 
-        return row
+        let block = UIStackView(arrangedSubviews: [chipsRow, tagsField])
+        block.translatesAutoresizingMaskIntoConstraints = false
+        block.axis = .vertical
+        block.spacing = GripeSpacing.s
+        block.alignment = .fill
+
+        tagsField.textField.autocapitalizationType = .none
+        tagsField.textField.autocorrectionType = .no
+
+        return block
     }
 
     private func setupSubmit() {
@@ -192,6 +202,11 @@ final class CommentComposerVC: UIViewController {
         if bugChip.isSelectedChip { tags.append(bugChip.title) }
         if ideaChip.isSelectedChip { tags.append(ideaChip.title) }
         if polishChip.isSelectedChip { tags.append(polishChip.title) }
+        let custom = (tagsField.textField.text ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        tags.append(contentsOf: custom)
         return tags
     }
 
@@ -219,6 +234,7 @@ final class CommentComposerVC: UIViewController {
         submitButton.alpha = busy ? 0.5 : 1
         commentArea.textView.isEditable = !busy
         titleField.textField.isEnabled = !busy
+        tagsField.textField.isEnabled = !busy
         if busy { activity.startAnimating() } else { activity.stopAnimating() }
     }
 
