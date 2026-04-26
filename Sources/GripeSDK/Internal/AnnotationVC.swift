@@ -4,7 +4,7 @@ import UIKit
 // MARK: - Model
 
 enum AnnotationTool: Int, CaseIterable {
-    case pen, rect, arrow, text
+    case pen, rect, arrow, text, select
 
     var systemImage: String {
         switch self {
@@ -12,6 +12,7 @@ enum AnnotationTool: Int, CaseIterable {
         case .rect: return "rectangle"
         case .arrow: return "arrow.up.right"
         case .text: return "textformat"
+        case .select: return "cursorarrow"
         }
     }
 }
@@ -23,9 +24,38 @@ private struct Annotation {
         case arrow(from: CGPoint, to: CGPoint)
         case text(String, origin: CGPoint, fontSize: CGFloat)
     }
+
+    let id: UUID = UUID()
     var shape: Shape
     var color: UIColor
     var lineWidth: CGFloat
+
+    var isSelectable: Bool {
+        if case .path = shape { return false }
+        return true
+    }
+}
+
+private enum HistoryStep {
+    case add(annotation: Annotation)
+    case modify(id: UUID, before: Annotation, after: Annotation)
+}
+
+private enum Corner { case tl, tr, bl, br }
+private enum ArrowEnd { case from, to }
+
+private enum DragMode {
+    case move
+    case resizeRectCorner(Corner)
+    case resizeArrowEndpoint(ArrowEnd)
+    case resizeTextCorner(Corner)
+}
+
+private struct ActiveDrag {
+    let id: UUID
+    let mode: DragMode
+    let initial: Annotation
+    let startTouchN: CGPoint
 }
 
 private enum AnnotationPalette {
@@ -59,15 +89,18 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
     var onChange: (() -> Void)?
 
     private var annotations: [Annotation] = []
-    private var redoStack: [Annotation] = []
+    private var undoStack: [HistoryStep] = []
+    private var redoStack: [HistoryStep] = []
     private var inProgress: Annotation?
-    private var dragStart: CGPoint?
+    private var dragStartN: CGPoint?
     private var liveTextField: UITextField?
+    private var selectedID: UUID?
+    private var activeDrag: ActiveDrag?
 
     private let pan = UIPanGestureRecognizer()
     private let tap = UITapGestureRecognizer()
 
-    var canUndo: Bool { !annotations.isEmpty || liveTextField != nil }
+    var canUndo: Bool { !undoStack.isEmpty || liveTextField != nil }
     var canRedo: Bool { !redoStack.isEmpty }
 
     override init(frame: CGRect) {
@@ -94,21 +127,45 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
 
     func undo() {
         if liveTextField != nil { discardLiveText(); return }
-        guard let last = annotations.popLast() else { return }
-        redoStack.append(last)
+        guard let step = undoStack.popLast() else { return }
+        apply(step: step, direction: .backward)
+        redoStack.append(step)
         setNeedsDisplay()
         onChange?()
     }
 
     func redo() {
-        guard let next = redoStack.popLast() else { return }
-        annotations.append(next)
+        guard let step = redoStack.popLast() else { return }
+        apply(step: step, direction: .forward)
+        undoStack.append(step)
         setNeedsDisplay()
         onChange?()
     }
 
+    func recolorSelected(to color: UIColor) {
+        guard let id = selectedID,
+              let idx = annotations.firstIndex(where: { $0.id == id }),
+              annotations[idx].color != color else { return }
+        let before = annotations[idx]
+        var after = before
+        after.color = color
+        annotations[idx] = after
+        undoStack.append(.modify(id: id, before: before, after: after))
+        redoStack.removeAll()
+        setNeedsDisplay()
+        onChange?()
+    }
+
+    func selectedAnnotationColor() -> UIColor? {
+        guard let id = selectedID else { return nil }
+        return annotations.first(where: { $0.id == id })?.color
+    }
+
     func render() -> UIImage {
         commitLiveText()
+        let snapshotSelected = selectedID
+        selectedID = nil
+        defer { selectedID = snapshotSelected }
         guard let image = image else { return UIImage() }
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = image.scale
@@ -125,7 +182,29 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         }
     }
 
-    // MARK: Image rect / coordinate transforms
+    // MARK: History
+
+    private enum Direction { case forward, backward }
+
+    private func apply(step: HistoryStep, direction: Direction) {
+        switch step {
+        case .add(let annotation):
+            switch direction {
+            case .forward:
+                if !annotations.contains(where: { $0.id == annotation.id }) {
+                    annotations.append(annotation)
+                }
+            case .backward:
+                annotations.removeAll { $0.id == annotation.id }
+                if selectedID == annotation.id { selectedID = nil }
+            }
+        case .modify(let id, let before, let after):
+            guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
+            annotations[idx] = direction == .forward ? after : before
+        }
+    }
+
+    // MARK: Coordinates
 
     private var imageRect: CGRect {
         guard let image = image, image.size.width > 0, image.size.height > 0 else { return .zero }
@@ -158,6 +237,12 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         return CGPoint(x: r.minX + point.x * r.width, y: r.minY + point.y * r.height)
     }
 
+    private func denormalizeRect(_ r: CGRect) -> CGRect {
+        let a = denormalize(r.origin)
+        let b = denormalize(CGPoint(x: r.maxX, y: r.maxY))
+        return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+    }
+
     // MARK: Drawing
 
     override func draw(_ rect: CGRect) {
@@ -166,8 +251,15 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
             image.draw(in: imageRect)
         }
         let viewTransform: (CGPoint) -> CGPoint = { [weak self] p in self?.denormalize(p) ?? .zero }
-        for ann in annotations { draw(annotation: ann, in: ctx, transform: viewTransform, scale: 1) }
-        if let inProgress { draw(annotation: inProgress, in: ctx, transform: viewTransform, scale: 1) }
+        for ann in annotations {
+            draw(annotation: ann, in: ctx, transform: viewTransform, scale: 1)
+        }
+        if let inProgress {
+            draw(annotation: inProgress, in: ctx, transform: viewTransform, scale: 1)
+        }
+        if let id = selectedID, let ann = annotations.first(where: { $0.id == id }) {
+            drawSelection(for: ann, in: ctx)
+        }
     }
 
     private func draw(annotation: Annotation,
@@ -180,7 +272,6 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
         ctx.setLineWidth(annotation.lineWidth * scale)
-
         switch annotation.shape {
         case .path(let pts):
             guard let first = pts.first else { ctx.restoreGState(); return }
@@ -191,8 +282,7 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         case .rect(let r):
             let a = transform(r.origin)
             let b = transform(CGPoint(x: r.maxX, y: r.maxY))
-            let pixelRect = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
-            ctx.stroke(pixelRect)
+            ctx.stroke(CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y))
         case .arrow(let from, let to):
             drawArrow(from: transform(from),
                       to: transform(to),
@@ -233,6 +323,107 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         ctx.fillPath()
     }
 
+    private func drawSelection(for annotation: Annotation, in ctx: CGContext) {
+        ctx.saveGState()
+        if case .arrow = annotation.shape {
+            // Endpoint handles are sufficient — don't draw a bounding rect for arrows.
+        } else if let bbox = boundingBoxView(annotation) {
+            ctx.setStrokeColor(GripeColor.primary.cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.setLineDash(phase: 0, lengths: [6, 4])
+            ctx.stroke(bbox.insetBy(dx: -4, dy: -4))
+            ctx.setLineDash(phase: 0, lengths: [])
+        }
+        for h in handlePoints(for: annotation) {
+            let r: CGFloat = 6
+            let rect = CGRect(x: h.point.x - r, y: h.point.y - r, width: 2 * r, height: 2 * r)
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.setStrokeColor(GripeColor.primary.cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.fillEllipse(in: rect)
+            ctx.strokeEllipse(in: rect)
+        }
+        ctx.restoreGState()
+    }
+
+    // MARK: Hit testing
+
+    private func boundingBoxView(_ annotation: Annotation) -> CGRect? {
+        switch annotation.shape {
+        case .path:
+            return nil
+        case .rect(let r):
+            return denormalizeRect(r)
+        case .arrow(let from, let to):
+            let f = denormalize(from)
+            let t = denormalize(to)
+            let pad: CGFloat = max(annotation.lineWidth * 1.5, 12)
+            return CGRect(
+                x: min(f.x, t.x) - pad,
+                y: min(f.y, t.y) - pad,
+                width: abs(f.x - t.x) + 2 * pad,
+                height: abs(f.y - t.y) + 2 * pad
+            )
+        case .text(let s, let origin, let fontSize):
+            let size = textSizeView(s, fontSize: fontSize)
+            return CGRect(origin: denormalize(origin), size: size)
+        }
+    }
+
+    private func textSizeView(_ s: String, fontSize: CGFloat) -> CGSize {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        ]
+        return (s as NSString).size(withAttributes: attrs)
+    }
+
+    private func handlePoints(for annotation: Annotation) -> [(mode: DragMode, point: CGPoint)] {
+        switch annotation.shape {
+        case .path:
+            return []
+        case .rect(let r):
+            let bbox = denormalizeRect(r)
+            return [
+                (.resizeRectCorner(.tl), CGPoint(x: bbox.minX, y: bbox.minY)),
+                (.resizeRectCorner(.tr), CGPoint(x: bbox.maxX, y: bbox.minY)),
+                (.resizeRectCorner(.bl), CGPoint(x: bbox.minX, y: bbox.maxY)),
+                (.resizeRectCorner(.br), CGPoint(x: bbox.maxX, y: bbox.maxY)),
+            ]
+        case .arrow(let from, let to):
+            return [
+                (.resizeArrowEndpoint(.from), denormalize(from)),
+                (.resizeArrowEndpoint(.to), denormalize(to)),
+            ]
+        case .text:
+            guard let bbox = boundingBoxView(annotation) else { return [] }
+            return [
+                (.resizeTextCorner(.tl), CGPoint(x: bbox.minX, y: bbox.minY)),
+                (.resizeTextCorner(.tr), CGPoint(x: bbox.maxX, y: bbox.minY)),
+                (.resizeTextCorner(.bl), CGPoint(x: bbox.minX, y: bbox.maxY)),
+                (.resizeTextCorner(.br), CGPoint(x: bbox.maxX, y: bbox.maxY)),
+            ]
+        }
+    }
+
+    private func handleAt(viewPoint: CGPoint, for annotation: Annotation) -> DragMode? {
+        let r: CGFloat = 18
+        for h in handlePoints(for: annotation) {
+            if hypot(viewPoint.x - h.point.x, viewPoint.y - h.point.y) <= r {
+                return h.mode
+            }
+        }
+        return nil
+    }
+
+    private func topAnnotationAt(viewPoint: CGPoint) -> UUID? {
+        for ann in annotations.reversed() where ann.isSelectable {
+            if let bbox = boundingBoxView(ann), bbox.insetBy(dx: -4, dy: -4).contains(viewPoint) {
+                return ann.id
+            }
+        }
+        return nil
+    }
+
     // MARK: Gestures
 
     private func updateGesturesForTool() {
@@ -240,25 +431,53 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         case .text:
             pan.isEnabled = false
             tap.isEnabled = true
+            if selectedID != nil { selectedID = nil; setNeedsDisplay() }
+        case .select:
+            pan.isEnabled = true
+            tap.isEnabled = true
         default:
             pan.isEnabled = true
             tap.isEnabled = false
+            if selectedID != nil { selectedID = nil; setNeedsDisplay() }
         }
     }
 
     @objc private func handlePan(_ gr: UIPanGestureRecognizer) {
+        if currentTool == .select {
+            handleSelectPan(gr)
+        } else {
+            handleDrawPan(gr)
+        }
+    }
+
+    @objc private func handleTap(_ gr: UITapGestureRecognizer) {
+        switch currentTool {
+        case .text:
+            if liveTextField != nil { commitLiveText(); return }
+            let viewPt = gr.location(in: self)
+            guard imageRect.contains(viewPt) else { return }
+            showLiveTextField(at: viewPt)
+        case .select:
+            handleSelectTap(gr)
+        default:
+            break
+        }
+    }
+
+    // MARK: Draw pan
+
+    private func handleDrawPan(_ gr: UIPanGestureRecognizer) {
         let viewPt = clamp(gr.location(in: self))
         let np = normalize(viewPt)
         switch gr.state {
         case .began:
-            redoStack.removeAll()
             switch currentTool {
             case .pen:
                 inProgress = Annotation(shape: .path(points: [np]),
                                         color: currentColor,
                                         lineWidth: AnnotationPalette.lineWidth)
             case .rect:
-                dragStart = np
+                dragStartN = np
                 inProgress = Annotation(shape: .rect(CGRect(origin: np, size: .zero)),
                                         color: currentColor,
                                         lineWidth: AnnotationPalette.lineWidth)
@@ -266,7 +485,7 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
                 inProgress = Annotation(shape: .arrow(from: np, to: np),
                                         color: currentColor,
                                         lineWidth: AnnotationPalette.lineWidth)
-            case .text:
+            default:
                 break
             }
         case .changed:
@@ -276,7 +495,7 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
                 pts.append(np)
                 current.shape = .path(points: pts)
             case (.rect, .rect):
-                if let s = dragStart {
+                if let s = dragStartN {
                     let r = CGRect(x: min(s.x, np.x),
                                    y: min(s.y, np.y),
                                    width: abs(np.x - s.x),
@@ -293,22 +512,79 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         case .ended, .cancelled, .failed:
             if let a = inProgress, isMeaningful(a) {
                 annotations.append(a)
+                undoStack.append(.add(annotation: a))
+                redoStack.removeAll()
                 onChange?()
             }
             inProgress = nil
-            dragStart = nil
+            dragStartN = nil
             setNeedsDisplay()
         default:
             break
         }
     }
 
-    @objc private func handleTap(_ gr: UITapGestureRecognizer) {
-        guard currentTool == .text else { return }
-        if liveTextField != nil { commitLiveText(); return }
+    // MARK: Select pan / tap
+
+    private func handleSelectPan(_ gr: UIPanGestureRecognizer) {
         let viewPt = gr.location(in: self)
-        guard imageRect.contains(viewPt) else { return }
-        showLiveTextField(at: viewPt)
+        let np = normalize(viewPt)
+        switch gr.state {
+        case .began:
+            if let id = selectedID,
+               let ann = annotations.first(where: { $0.id == id }),
+               let mode = handleAt(viewPoint: viewPt, for: ann) {
+                activeDrag = ActiveDrag(id: id, mode: mode, initial: ann, startTouchN: np)
+                return
+            }
+            if let id = topAnnotationAt(viewPoint: viewPt),
+               let ann = annotations.first(where: { $0.id == id }) {
+                let changedSelection = selectedID != id
+                selectedID = id
+                activeDrag = ActiveDrag(id: id, mode: .move, initial: ann, startTouchN: np)
+                setNeedsDisplay()
+                if changedSelection { onChange?() }
+                return
+            }
+            if selectedID != nil {
+                selectedID = nil
+                setNeedsDisplay()
+                onChange?()
+            }
+            activeDrag = nil
+        case .changed:
+            guard let drag = activeDrag,
+                  let idx = annotations.firstIndex(where: { $0.id == drag.id }) else { return }
+            annotations[idx] = applyDrag(initial: drag.initial,
+                                         mode: drag.mode,
+                                         startTouchN: drag.startTouchN,
+                                         currentTouchN: np)
+            setNeedsDisplay()
+        case .ended, .cancelled, .failed:
+            guard let drag = activeDrag,
+                  let idx = annotations.firstIndex(where: { $0.id == drag.id }) else {
+                activeDrag = nil
+                return
+            }
+            let final = annotations[idx]
+            if !shapesEqual(drag.initial.shape, final.shape) {
+                undoStack.append(.modify(id: drag.id, before: drag.initial, after: final))
+                redoStack.removeAll()
+                onChange?()
+            }
+            activeDrag = nil
+        default:
+            break
+        }
+    }
+
+    private func handleSelectTap(_ gr: UITapGestureRecognizer) {
+        let viewPt = gr.location(in: self)
+        let nextID = topAnnotationAt(viewPoint: viewPt)
+        guard nextID != selectedID else { return }
+        selectedID = nextID
+        setNeedsDisplay()
+        onChange?()
     }
 
     private func isMeaningful(_ annotation: Annotation) -> Bool {
@@ -319,6 +595,130 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         case .arrow(let f, let t): return abs(f.x - t.x) > minLen || abs(f.y - t.y) > minLen
         case .text(let s, _, _): return !s.trimmingCharacters(in: .whitespaces).isEmpty
         }
+    }
+
+    private func shapesEqual(_ a: Annotation.Shape, _ b: Annotation.Shape) -> Bool {
+        switch (a, b) {
+        case (.path(let p1), .path(let p2)):
+            return p1 == p2
+        case (.rect(let r1), .rect(let r2)):
+            return r1 == r2
+        case (.arrow(let f1, let t1), .arrow(let f2, let t2)):
+            return f1 == f2 && t1 == t2
+        case (.text(let s1, let o1, let fs1), .text(let s2, let o2, let fs2)):
+            return s1 == s2 && o1 == o2 && fs1 == fs2
+        default:
+            return false
+        }
+    }
+
+    // MARK: Drag transforms
+
+    private func applyDrag(initial: Annotation,
+                           mode: DragMode,
+                           startTouchN: CGPoint,
+                           currentTouchN: CGPoint) -> Annotation {
+        let dx = currentTouchN.x - startTouchN.x
+        let dy = currentTouchN.y - startTouchN.y
+        var result = initial
+        switch mode {
+        case .move:
+            result.shape = translate(initial.shape, dx: dx, dy: dy)
+        case .resizeRectCorner(let c):
+            guard case .rect(let r) = initial.shape else { return initial }
+            result.shape = .rect(resizeRect(r, corner: c, dx: dx, dy: dy))
+        case .resizeArrowEndpoint(let e):
+            guard case .arrow(let from, let to) = initial.shape else { return initial }
+            switch e {
+            case .from:
+                result.shape = .arrow(from: CGPoint(x: from.x + dx, y: from.y + dy), to: to)
+            case .to:
+                result.shape = .arrow(from: from, to: CGPoint(x: to.x + dx, y: to.y + dy))
+            }
+        case .resizeTextCorner(let c):
+            guard case .text(let s, let origin, let fontSize) = initial.shape else { return initial }
+            result.shape = resizeText(s: s, origin: origin, fontSize: fontSize, corner: c, dx: dx, dy: dy)
+        }
+        return result
+    }
+
+    private func translate(_ shape: Annotation.Shape, dx: CGFloat, dy: CGFloat) -> Annotation.Shape {
+        switch shape {
+        case .path(let pts):
+            return .path(points: pts.map { CGPoint(x: $0.x + dx, y: $0.y + dy) })
+        case .rect(let r):
+            return .rect(r.offsetBy(dx: dx, dy: dy))
+        case .arrow(let from, let to):
+            return .arrow(from: CGPoint(x: from.x + dx, y: from.y + dy),
+                          to: CGPoint(x: to.x + dx, y: to.y + dy))
+        case .text(let s, let origin, let fs):
+            return .text(s, origin: CGPoint(x: origin.x + dx, y: origin.y + dy), fontSize: fs)
+        }
+    }
+
+    private func resizeRect(_ r: CGRect, corner: Corner, dx: CGFloat, dy: CGFloat) -> CGRect {
+        var minX = r.minX, minY = r.minY, maxX = r.maxX, maxY = r.maxY
+        switch corner {
+        case .tl: minX += dx; minY += dy
+        case .tr: maxX += dx; minY += dy
+        case .bl: minX += dx; maxY += dy
+        case .br: maxX += dx; maxY += dy
+        }
+        return CGRect(x: min(minX, maxX),
+                      y: min(minY, maxY),
+                      width: abs(maxX - minX),
+                      height: abs(maxY - minY))
+    }
+
+    private func resizeText(s: String,
+                            origin: CGPoint,
+                            fontSize: CGFloat,
+                            corner: Corner,
+                            dx: CGFloat,
+                            dy: CGFloat) -> Annotation.Shape {
+        let oldSizeView = textSizeView(s, fontSize: fontSize)
+        guard imageRect.height > 0, imageRect.width > 0,
+              oldSizeView.height > 0 else {
+            return .text(s, origin: origin, fontSize: fontSize)
+        }
+        let oldSizeN = CGSize(
+            width: oldSizeView.width / imageRect.width,
+            height: oldSizeView.height / imageRect.height
+        )
+        let opp: CGPoint
+        let originalCorner: CGPoint
+        switch corner {
+        case .tl:
+            opp = CGPoint(x: origin.x + oldSizeN.width, y: origin.y + oldSizeN.height)
+            originalCorner = origin
+        case .tr:
+            opp = CGPoint(x: origin.x, y: origin.y + oldSizeN.height)
+            originalCorner = CGPoint(x: origin.x + oldSizeN.width, y: origin.y)
+        case .bl:
+            opp = CGPoint(x: origin.x + oldSizeN.width, y: origin.y)
+            originalCorner = CGPoint(x: origin.x, y: origin.y + oldSizeN.height)
+        case .br:
+            opp = CGPoint(x: origin.x, y: origin.y)
+            originalCorner = CGPoint(x: origin.x + oldSizeN.width, y: origin.y + oldSizeN.height)
+        }
+        let dragged = CGPoint(x: originalCorner.x + dx, y: originalCorner.y + dy)
+        let oldDiag = max(hypot(originalCorner.x - opp.x, originalCorner.y - opp.y), 0.0001)
+        let newDiag = hypot(dragged.x - opp.x, dragged.y - opp.y)
+        let scale = max(0.25, min(8, newDiag / oldDiag))
+        let newFontSize = max(8, fontSize * scale)
+        let newSizeView = textSizeView(s, fontSize: newFontSize)
+        let newSizeN = CGSize(
+            width: newSizeView.width / imageRect.width,
+            height: newSizeView.height / imageRect.height
+        )
+        let newOrigin: CGPoint
+        switch corner {
+        case .tl: newOrigin = CGPoint(x: opp.x - newSizeN.width, y: opp.y - newSizeN.height)
+        case .tr: newOrigin = CGPoint(x: opp.x, y: opp.y - newSizeN.height)
+        case .bl: newOrigin = CGPoint(x: opp.x - newSizeN.width, y: opp.y)
+        case .br: newOrigin = CGPoint(x: opp.x, y: opp.y)
+        }
+        return .text(s, origin: newOrigin, fontSize: newFontSize)
     }
 
     // MARK: Text editing
@@ -373,6 +773,7 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
             lineWidth: 0
         )
         annotations.append(annotation)
+        undoStack.append(.add(annotation: annotation))
         redoStack.removeAll()
         setNeedsDisplay()
         onChange?()
@@ -432,7 +833,10 @@ final class AnnotationVC: UIViewController {
         canvasView.image = baseImage
         canvasView.currentTool = .pen
         canvasView.currentColor = AnnotationPalette.colors[0]
-        canvasView.onChange = { [weak self] in self?.refreshUndoRedo() }
+        canvasView.onChange = { [weak self] in
+            self?.refreshUndoRedo()
+            UIView.animate(withDuration: 0.15) { self?.applyColorSelection() }
+        }
         canvasView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(canvasView)
 
@@ -683,7 +1087,7 @@ final class AnnotationVC: UIViewController {
     }
 
     private func applyColorSelection() {
-        let activeColor = canvasView.currentColor
+        let activeColor = canvasView.selectedAnnotationColor() ?? canvasView.currentColor
         for (i, btn) in colorButtons.enumerated() {
             let color = AnnotationPalette.colors[i]
             let active = color == activeColor
@@ -707,23 +1111,29 @@ final class AnnotationVC: UIViewController {
     @objc private func toolTapped(_ sender: UIButton) {
         guard let tool = AnnotationTool(rawValue: sender.tag) else { return }
         canvasView.currentTool = tool
-        UIView.animate(withDuration: 0.15) { self.applyToolSelection() }
+        UIView.animate(withDuration: 0.15) {
+            self.applyToolSelection()
+            self.applyColorSelection()
+        }
     }
 
     @objc private func colorTapped(_ sender: UIButton) {
         let color = AnnotationPalette.colors[sender.tag]
         canvasView.currentColor = color
+        canvasView.recolorSelected(to: color)
         UIView.animate(withDuration: 0.15) { self.applyColorSelection() }
     }
 
     @objc private func undoTapped() {
         canvasView.undo()
         refreshUndoRedo()
+        applyColorSelection()
     }
 
     @objc private func redoTapped() {
         canvasView.redo()
         refreshUndoRedo()
+        applyColorSelection()
     }
 
     @objc private func backTapped() {
