@@ -24,6 +24,11 @@ app.post('/v1/reports', async (c) => {
 
   const comment = (form.get('comment') ?? '').toString();
   const metadataRaw = (form.get('metadata') ?? '').toString();
+  const repositoryOverride = (form.get('repository') ?? '').toString();
+  const repository = repositoryOverride || c.env.GITHUB_REPO;
+  if (!repository) {
+    return c.json({ error: 'repository_required' }, 400);
+  }
   const imageEntry = form.get('image');
   if (!imageEntry || typeof imageEntry === 'string') {
     return c.json({ error: 'image_required' }, 400);
@@ -52,7 +57,7 @@ app.post('/v1/reports', async (c) => {
   const title = deriveTitle(comment, metadata);
 
   try {
-    const issue = await createIssue(c.env, { title, body, labels: ['gripe'] });
+    const issue = await createIssue(c.env, { title, body, labels: ['gripe'], repository });
     return c.json({ issueUrl: issue.html_url, issueNumber: issue.number }, 201);
   } catch (err) {
     return c.json({ error: 'github_failed', detail: String(err) }, 502);

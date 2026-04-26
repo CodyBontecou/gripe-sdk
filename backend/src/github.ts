@@ -4,6 +4,7 @@ interface CreateIssueInput {
   title: string;
   body: string;
   labels?: string[];
+  repository: string;
 }
 
 interface GitHubIssue {
@@ -12,9 +13,9 @@ interface GitHubIssue {
 }
 
 export async function createIssue(env: Bindings, input: CreateIssueInput): Promise<GitHubIssue> {
-  const [owner, repo] = env.GITHUB_REPO.split('/');
+  const [owner, repo] = input.repository.split('/');
   if (!owner || !repo) {
-    throw new Error(`invalid GITHUB_REPO: ${env.GITHUB_REPO}`);
+    throw new Error(`invalid repository: ${input.repository}`);
   }
 
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {

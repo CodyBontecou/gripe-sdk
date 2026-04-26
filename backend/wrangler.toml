@@ -2,6 +2,10 @@ name = "gripe-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
+routes = [
+  { pattern = "gripe.isolated.tech", custom_domain = true }
+]
+
 [[r2_buckets]]
 binding = "GRIPE_IMAGES"
 bucket_name = "gripe-images"
@@ -9,6 +13,6 @@ bucket_name = "gripe-images"
 # Public env vars. Secrets (GRIPE_API_KEY, GITHUB_TOKEN) go through:
 #   wrangler secret put GRIPE_API_KEY
 #   wrangler secret put GITHUB_TOKEN
+# GITHUB_REPO is now per-request (sent by SDK as `repository` form field).
 [vars]
-GITHUB_REPO = "your-org/your-repo"
-R2_PUBLIC_BASE = "https://pub-changeme.r2.dev"
+R2_PUBLIC_BASE = "https://gripe.isolated.tech/images"

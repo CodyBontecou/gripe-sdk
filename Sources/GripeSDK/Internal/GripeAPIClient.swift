@@ -57,6 +57,9 @@ final class GripeAPIClient {
         var body = Data()
         body.appendField(boundary: boundary, name: "comment", value: comment)
         body.appendField(boundary: boundary, name: "metadata", value: String(data: metadataJSON, encoding: .utf8) ?? "{}")
+        if let repository = config.repository, !repository.isEmpty {
+            body.appendField(boundary: boundary, name: "repository", value: repository)
+        }
         body.appendFile(boundary: boundary, name: "image", filename: "screenshot.png", contentType: "image/png", data: pngData)
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 

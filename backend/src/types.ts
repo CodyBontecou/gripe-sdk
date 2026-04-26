@@ -2,7 +2,7 @@ export interface Bindings {
   GRIPE_IMAGES: R2Bucket;
   GRIPE_API_KEY: string;
   GITHUB_TOKEN: string;
-  GITHUB_REPO: string;
+  GITHUB_REPO?: string;
   R2_PUBLIC_BASE: string;
 }
 
