@@ -8,11 +8,15 @@ final class SelectorOverlayVC: UIViewController {
     private let imageView = UIImageView()
     private let cropView = CropRectView()
 
-    private let titlePill = UIView()
+    private let topBar = UIView()
+    private let topBarBlur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    private let topBarRim = UIView()
     private let titleLabel = UILabel()
     private let infoButton = UIButton(type: .system)
+    private let dividerView = UIView()
     private let cancelButton = UIButton(type: .custom)
-    private let nextButton = GripePrimaryButton(title: "Next", systemImage: "arrow.right")
+    private let nextButton = UIButton(type: .custom)
+    private let rightStack = UIStackView()
 
     init(snapshot: UIImage, onClose: @escaping () -> Void) {
         self.snapshot = snapshot
@@ -36,13 +40,8 @@ final class SelectorOverlayVC: UIViewController {
         cropView.backgroundColor = .clear
         view.addSubview(cropView)
 
-        configureTitlePill()
-        configureCancelButton()
-        configureNextButton()
-
-        view.addSubview(titlePill)
-        view.addSubview(cancelButton)
-        view.addSubview(nextButton)
+        configureTopBar()
+        view.addSubview(topBar)
 
         let imageRect: () -> CGRect = { [weak self] in self?.displayedImageRect() ?? .zero }
         cropView.configure(imageRect: imageRect)
@@ -59,81 +58,140 @@ final class SelectorOverlayVC: UIViewController {
             cropView.topAnchor.constraint(equalTo: view.topAnchor),
             cropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            titlePill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            titlePill.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: GripeSpacing.s),
-
-            cancelButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
-            cancelButton.centerYAnchor.constraint(equalTo: titlePill.centerYAnchor),
-            cancelButton.widthAnchor.constraint(equalToConstant: 36),
-            cancelButton.heightAnchor.constraint(equalToConstant: 36),
-
-            nextButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
-            nextButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -GripeSpacing.l),
+            topBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: GripeSpacing.s),
+            topBar.heightAnchor.constraint(equalToConstant: 44),
+            topBar.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: GripeSpacing.l),
+            topBar.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
         ])
 
         updateNextButtonVisibility()
     }
 
-    private func configureTitlePill() {
-        titlePill.backgroundColor = .white
-        titlePill.layer.cornerRadius = 18
-        titlePill.layer.borderWidth = 1
-        titlePill.layer.borderColor = GripeColor.border.cgColor
-        titlePill.translatesAutoresizingMaskIntoConstraints = false
+    private func configureTopBar() {
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+        topBar.backgroundColor = .clear
+        topBar.layer.cornerRadius = 22
+        topBar.layer.cornerCurve = .continuous
+        topBar.layer.shadowColor = UIColor.black.cgColor
+        topBar.layer.shadowOpacity = 0.18
+        topBar.layer.shadowRadius = 18
+        topBar.layer.shadowOffset = CGSize(width: 0, height: 4)
+
+        topBarBlur.translatesAutoresizingMaskIntoConstraints = false
+        topBarBlur.layer.cornerRadius = 22
+        topBarBlur.layer.cornerCurve = .continuous
+        topBarBlur.clipsToBounds = true
+        topBar.addSubview(topBarBlur)
+
+        topBarRim.translatesAutoresizingMaskIntoConstraints = false
+        topBarRim.backgroundColor = .clear
+        topBarRim.layer.cornerRadius = 22
+        topBarRim.layer.cornerCurve = .continuous
+        topBarRim.layer.borderWidth = 0.5
+        topBarRim.layer.borderColor = UIColor.white.withAlphaComponent(0.45).cgColor
+        topBarRim.isUserInteractionEnabled = false
+        topBar.addSubview(topBarRim)
+
+        NSLayoutConstraint.activate([
+            topBarBlur.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
+            topBarBlur.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
+            topBarBlur.topAnchor.constraint(equalTo: topBar.topAnchor),
+            topBarBlur.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
+
+            topBarRim.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
+            topBarRim.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
+            topBarRim.topAnchor.constraint(equalTo: topBar.topAnchor),
+            topBarRim.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
+        ])
+
+        let content = topBarBlur.contentView
 
         titleLabel.text = "Gripe"
         titleLabel.font = GripeFont.bodySemibold()
         titleLabel.textColor = GripeColor.textPrimary
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titlePill.addSubview(titleLabel)
+        content.addSubview(titleLabel)
 
         infoButton.setImage(UIImage(systemName: "info.circle")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)), for: .normal)
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)), for: .normal)
         infoButton.tintColor = GripeColor.textSecondary
         infoButton.addTarget(self, action: #selector(infoTapped), for: .touchUpInside)
         infoButton.translatesAutoresizingMaskIntoConstraints = false
-        titlePill.addSubview(infoButton)
+        content.addSubview(infoButton)
 
-        NSLayoutConstraint.activate([
-            titlePill.heightAnchor.constraint(equalToConstant: 36),
+        dividerView.backgroundColor = UIColor.black.withAlphaComponent(0.1)
+        dividerView.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(dividerView)
 
-            titleLabel.leadingAnchor.constraint(equalTo: titlePill.leadingAnchor, constant: GripeSpacing.l),
-            titleLabel.centerYAnchor.constraint(equalTo: titlePill.centerYAnchor),
-
-            infoButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 6),
-            infoButton.trailingAnchor.constraint(equalTo: titlePill.trailingAnchor, constant: -10),
-            infoButton.centerYAnchor.constraint(equalTo: titlePill.centerYAnchor),
-            infoButton.widthAnchor.constraint(equalToConstant: 28),
-            infoButton.heightAnchor.constraint(equalToConstant: 28),
-        ])
-    }
-
-    private func configureCancelButton() {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "xmark")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
-        config.baseForegroundColor = GripeColor.textPrimary
-        config.contentInsets = .zero
-        cancelButton.configuration = config
-        cancelButton.backgroundColor = .white
-        cancelButton.layer.cornerRadius = 18
-        cancelButton.layer.shadowColor = UIColor.black.cgColor
-        cancelButton.layer.shadowOpacity = 0.2
-        cancelButton.layer.shadowOffset = CGSize(width: 0, height: 2)
-        cancelButton.layer.shadowRadius = 6
+        var cancelConfig = UIButton.Configuration.plain()
+        cancelConfig.image = UIImage(systemName: "xmark")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold))
+        cancelConfig.baseForegroundColor = GripeColor.textPrimary
+        cancelConfig.contentInsets = .zero
+        cancelButton.configuration = cancelConfig
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
-        cancelButton.translatesAutoresizingMaskIntoConstraints = false
-    }
 
-    private func configureNextButton() {
-        nextButton.translatesAutoresizingMaskIntoConstraints = false
+        var nextConfig = UIButton.Configuration.filled()
+        nextConfig.cornerStyle = .capsule
+        nextConfig.baseBackgroundColor = GripeColor.primary
+        nextConfig.baseForegroundColor = .white
+        nextConfig.image = UIImage(systemName: "arrow.right")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        nextConfig.imagePlacement = .trailing
+        nextConfig.imagePadding = 6
+        nextConfig.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 12)
+        var nextAttr = AttributedString("Next")
+        nextAttr.font = .systemFont(ofSize: 14, weight: .semibold)
+        nextConfig.attributedTitle = nextAttr
+        nextButton.configuration = nextConfig
+        nextButton.configurationUpdateHandler = { btn in
+            var c = btn.configuration
+            c?.background.backgroundColor = btn.isHighlighted ? GripeColor.primaryDark : GripeColor.primary
+            btn.configuration = c
+        }
         nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
         nextButton.isHidden = true
+        nextButton.alpha = 0
+
+        rightStack.axis = .horizontal
+        rightStack.spacing = 4
+        rightStack.alignment = .center
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(cancelButton)
+        rightStack.addArrangedSubview(nextButton)
+        content.addSubview(rightStack)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            titleLabel.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+
+            infoButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 4),
+            infoButton.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            infoButton.widthAnchor.constraint(equalToConstant: 22),
+            infoButton.heightAnchor.constraint(equalToConstant: 22),
+
+            dividerView.leadingAnchor.constraint(equalTo: infoButton.trailingAnchor, constant: 10),
+            dividerView.widthAnchor.constraint(equalToConstant: 0.5),
+            dividerView.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
+            dividerView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+
+            rightStack.leadingAnchor.constraint(equalTo: dividerView.trailingAnchor, constant: 8),
+            rightStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -6),
+            rightStack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+
+            cancelButton.widthAnchor.constraint(equalToConstant: 30),
+            cancelButton.heightAnchor.constraint(equalToConstant: 30),
+        ])
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         cropView.refreshIfNeeded()
+        topBar.layer.shadowPath = UIBezierPath(
+            roundedRect: topBar.bounds,
+            cornerRadius: topBar.layer.cornerRadius
+        ).cgPath
     }
 
     func displayedImageRect() -> CGRect {
@@ -153,7 +211,12 @@ final class SelectorOverlayVC: UIViewController {
     private func updateNextButtonVisibility() {
         let rect = cropView.cropRectInView
         let hasSelection = rect.map { $0.width > 4 && $0.height > 4 } ?? false
-        nextButton.isHidden = !hasSelection
+        guard nextButton.isHidden == hasSelection else { return }
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
+            self.nextButton.isHidden = !hasSelection
+            self.nextButton.alpha = hasSelection ? 1 : 0
+            self.view.layoutIfNeeded()
+        }
     }
 
     @objc private func cancelTapped() {
@@ -225,4 +288,3 @@ final class SelectorOverlayVC: UIViewController {
     }
 }
 #endif
-
