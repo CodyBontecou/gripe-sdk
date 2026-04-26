@@ -13,10 +13,16 @@ final class CropRectView: UIView {
     private var pinchInitialRect: CGRect?
 
     private static let minCropSize: CGFloat = 40
+    private static let cornerHitSize: CGFloat = 44
+
+    private enum Corner {
+        case topLeft, topRight, bottomLeft, bottomRight
+    }
 
     private enum DragMode {
         case create(start: CGPoint)
         case move(initialRect: CGRect, startTouch: CGPoint)
+        case resize(anchor: CGPoint)
     }
 
     override init(frame: CGRect) {
@@ -75,7 +81,9 @@ final class CropRectView: UIView {
         let pt = clamp(raw, to: imageRect)
         switch pan.state {
         case .began:
-            if let existing = cropRectInView, existing.contains(raw) {
+            if let existing = cropRectInView, let corner = cornerHit(at: raw, in: existing) {
+                dragMode = .resize(anchor: oppositeCorner(of: corner, in: existing))
+            } else if let existing = cropRectInView, existing.contains(raw) {
                 dragMode = .move(initialRect: existing, startTouch: raw)
             } else {
                 dragMode = .create(start: pt)
@@ -98,6 +106,8 @@ final class CropRectView: UIView {
                 let originX = min(max(initialRect.minX + dx, imageRect.minX), maxX)
                 let originY = min(max(initialRect.minY + dy, imageRect.minY), maxY)
                 cropRectInView = CGRect(origin: CGPoint(x: originX, y: originY), size: initialRect.size)
+            case .resize(let anchor):
+                cropRectInView = resizedRect(anchor: anchor, moving: pt, in: imageRect)
             case .none:
                 break
             }
@@ -141,6 +151,59 @@ final class CropRectView: UIView {
         default:
             break
         }
+    }
+
+    private func cornerHit(at point: CGPoint, in rect: CGRect) -> Corner? {
+        let r = Self.cornerHitSize / 2
+        let corners: [(Corner, CGPoint)] = [
+            (.topLeft, CGPoint(x: rect.minX, y: rect.minY)),
+            (.topRight, CGPoint(x: rect.maxX, y: rect.minY)),
+            (.bottomLeft, CGPoint(x: rect.minX, y: rect.maxY)),
+            (.bottomRight, CGPoint(x: rect.maxX, y: rect.maxY)),
+        ]
+        var best: (Corner, CGFloat)?
+        for (corner, center) in corners {
+            let dx = point.x - center.x
+            let dy = point.y - center.y
+            if abs(dx) <= r && abs(dy) <= r {
+                let d2 = dx * dx + dy * dy
+                if best == nil || d2 < best!.1 {
+                    best = (corner, d2)
+                }
+            }
+        }
+        return best?.0
+    }
+
+    private func oppositeCorner(of corner: Corner, in rect: CGRect) -> CGPoint {
+        switch corner {
+        case .topLeft: return CGPoint(x: rect.maxX, y: rect.maxY)
+        case .topRight: return CGPoint(x: rect.minX, y: rect.maxY)
+        case .bottomLeft: return CGPoint(x: rect.maxX, y: rect.minY)
+        case .bottomRight: return CGPoint(x: rect.minX, y: rect.minY)
+        }
+    }
+
+    private func resizedRect(anchor: CGPoint, moving: CGPoint, in imageRect: CGRect) -> CGRect {
+        let minSize = Self.minCropSize
+        var mx = moving.x
+        var my = moving.y
+        if abs(mx - anchor.x) < minSize {
+            mx = mx >= anchor.x
+                ? min(anchor.x + minSize, imageRect.maxX)
+                : max(anchor.x - minSize, imageRect.minX)
+        }
+        if abs(my - anchor.y) < minSize {
+            my = my >= anchor.y
+                ? min(anchor.y + minSize, imageRect.maxY)
+                : max(anchor.y - minSize, imageRect.minY)
+        }
+        return CGRect(
+            x: min(anchor.x, mx),
+            y: min(anchor.y, my),
+            width: abs(mx - anchor.x),
+            height: abs(my - anchor.y)
+        )
     }
 
     private func clamp(_ p: CGPoint, to rect: CGRect) -> CGPoint {
