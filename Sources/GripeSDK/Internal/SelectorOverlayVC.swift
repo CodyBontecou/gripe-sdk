@@ -244,7 +244,20 @@ final class SelectorOverlayVC: UIViewController {
     @objc private func nextTapped() {
         guard let rect = cropView.cropRectInView, rect.width > 4, rect.height > 4 else { return }
         let cropped = crop(image: snapshot, rectInView: rect) ?? snapshot
-        let composer = CommentComposerVC(croppedImage: cropped, onFinished: { [weak self] in
+        let annotation = AnnotationVC(
+            image: cropped,
+            onCancel: {},
+            onDone: { [weak self] annotated in
+                self?.presentComposer(with: annotated)
+            }
+        )
+        annotation.modalPresentationStyle = .overFullScreen
+        annotation.modalTransitionStyle = .crossDissolve
+        present(annotation, animated: true)
+    }
+
+    private func presentComposer(with image: UIImage) {
+        let composer = CommentComposerVC(croppedImage: image, onFinished: { [weak self] in
             self?.finish(animated: false)
         })
         if #available(iOS 15.0, *) {
