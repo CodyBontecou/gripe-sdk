@@ -214,6 +214,9 @@ final class CropRectView: UIView {
     }
 
     private func updatePaths() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         guard let rect = cropRectInView else {
             outline.path = nil
             dim.path = nil
