@@ -11,7 +11,6 @@ enum CaptureFlow {
         TriggerToast.show()
 
         let snapshot = renderSnapshot(of: window)
-        let hierarchy = CapturedHierarchy.capture(window: window)
 
         var pendingSuccess: SuccessPayload?
         let observer = NotificationCenter.default.addObserver(
@@ -24,8 +23,6 @@ enum CaptureFlow {
 
         let overlay = SelectorOverlayVC(
             snapshot: snapshot,
-            hierarchy: hierarchy,
-            windowBounds: window.bounds,
             onClose: { [weak window] in
                 NotificationCenter.default.removeObserver(observer)
                 guard let payload = pendingSuccess, let window else {

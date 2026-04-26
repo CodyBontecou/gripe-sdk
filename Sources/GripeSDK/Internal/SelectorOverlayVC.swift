@@ -1,29 +1,19 @@
 import UIKit
 
 final class SelectorOverlayVC: UIViewController {
-    enum Mode: Int { case element = 0, crop = 1 }
-
     private let snapshot: UIImage
-    private let hierarchy: CapturedNode
-    private let windowBounds: CGRect
     private let onClose: () -> Void
 
     private let imageView = UIImageView()
-    private let highlighter = ElementHighlighter()
     private let cropView = CropRectView()
 
     private let titlePill = PaddedLabel()
     private let cancelButton = UIButton(type: .system)
-    private let modeTogglePill = UIButton(type: .system)
     private let nextButton = GripePrimaryButton(title: "Next", systemImage: "arrow.right")
     private let hint = UILabel()
 
-    private var mode: Mode = .element
-
-    init(snapshot: UIImage, hierarchy: CapturedNode, windowBounds: CGRect, onClose: @escaping () -> Void) {
+    init(snapshot: UIImage, onClose: @escaping () -> Void) {
         self.snapshot = snapshot
-        self.hierarchy = hierarchy
-        self.windowBounds = windowBounds
         self.onClose = onClose
         super.init(nibName: nil, bundle: nil)
     }
@@ -40,49 +30,29 @@ final class SelectorOverlayVC: UIViewController {
         imageView.isUserInteractionEnabled = false
         view.addSubview(imageView)
 
-        highlighter.translatesAutoresizingMaskIntoConstraints = false
-        highlighter.backgroundColor = .clear
-        view.addSubview(highlighter)
-
         cropView.translatesAutoresizingMaskIntoConstraints = false
         cropView.backgroundColor = .clear
-        cropView.isHidden = true
         view.addSubview(cropView)
 
         configureTitlePill()
         configureCancelButton()
-        configureModeTogglePill()
         configureNextButton()
         configureHint()
 
         view.addSubview(titlePill)
         view.addSubview(cancelButton)
-        view.addSubview(modeTogglePill)
         view.addSubview(hint)
         view.addSubview(nextButton)
 
         let imageRect: () -> CGRect = { [weak self] in self?.displayedImageRect() ?? .zero }
-        highlighter.configure(
-            hierarchy: hierarchy,
-            windowBounds: windowBounds,
-            imageRect: imageRect
-        )
         cropView.configure(imageRect: imageRect)
-
-        let selectionChanged: () -> Void = { [weak self] in self?.updateNextButtonVisibility() }
-        highlighter.onSelectionChanged = selectionChanged
-        cropView.onSelectionChanged = selectionChanged
+        cropView.onSelectionChanged = { [weak self] in self?.updateNextButtonVisibility() }
 
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             imageView.topAnchor.constraint(equalTo: view.topAnchor),
             imageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            highlighter.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            highlighter.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            highlighter.topAnchor.constraint(equalTo: view.topAnchor),
-            highlighter.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             cropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             cropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -95,15 +65,12 @@ final class SelectorOverlayVC: UIViewController {
             cancelButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
             cancelButton.centerYAnchor.constraint(equalTo: titlePill.centerYAnchor),
 
-            modeTogglePill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            modeTogglePill.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -GripeSpacing.s),
-
             hint.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: GripeSpacing.l),
             hint.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -GripeSpacing.l),
             hint.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -GripeSpacing.l),
 
             nextButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -GripeSpacing.l),
-            nextButton.bottomAnchor.constraint(equalTo: modeTogglePill.topAnchor, constant: -GripeSpacing.m),
+            nextButton.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -GripeSpacing.m),
         ])
 
         updateNextButtonVisibility()
@@ -131,20 +98,6 @@ final class SelectorOverlayVC: UIViewController {
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    private func configureModeTogglePill() {
-        modeTogglePill.setTitle("Switch to Crop", for: .normal)
-        modeTogglePill.setTitleColor(GripeColor.primary, for: .normal)
-        modeTogglePill.titleLabel?.font = GripeFont.bodyMedium()
-        modeTogglePill.backgroundColor = .white
-        modeTogglePill.contentEdgeInsets = UIEdgeInsets(top: 10, left: GripeSpacing.l, bottom: 10, right: GripeSpacing.l)
-        modeTogglePill.layer.cornerRadius = 16
-        modeTogglePill.layer.borderWidth = 1
-        modeTogglePill.layer.borderColor = GripeColor.border.cgColor
-        modeTogglePill.layer.masksToBounds = true
-        modeTogglePill.addTarget(self, action: #selector(toggleMode), for: .touchUpInside)
-        modeTogglePill.translatesAutoresizingMaskIntoConstraints = false
-    }
-
     private func configureNextButton() {
         nextButton.translatesAutoresizingMaskIntoConstraints = false
         nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
@@ -152,7 +105,7 @@ final class SelectorOverlayVC: UIViewController {
     }
 
     private func configureHint() {
-        hint.text = "Tap an element"
+        hint.text = "Drag to draw an area"
         hint.textColor = UIColor.white.withAlphaComponent(0.85)
         hint.font = GripeFont.caption()
         hint.textAlignment = .center
@@ -161,7 +114,6 @@ final class SelectorOverlayVC: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        highlighter.refresh()
         cropView.refreshIfNeeded()
     }
 
@@ -179,22 +131,8 @@ final class SelectorOverlayVC: UIViewController {
         return CGRect(origin: origin, size: displaySize)
     }
 
-    @objc private func toggleMode() {
-        mode = (mode == .element) ? .crop : .element
-        highlighter.isHidden = mode != .element
-        cropView.isHidden = mode != .crop
-        hint.text = mode == .element ? "Tap an element" : "Drag to draw an area"
-        modeTogglePill.setTitle(mode == .element ? "Switch to Crop" : "Switch to Element", for: .normal)
-        if mode == .crop { cropView.refreshIfNeeded() }
-        updateNextButtonVisibility()
-    }
-
     private func updateNextButtonVisibility() {
-        let rect: CGRect?
-        switch mode {
-        case .element: rect = highlighter.selectedRectInView
-        case .crop: rect = cropView.cropRectInView
-        }
+        let rect = cropView.cropRectInView
         let hasSelection = rect.map { $0.width > 4 && $0.height > 4 } ?? false
         nextButton.isHidden = !hasSelection
     }
@@ -204,13 +142,8 @@ final class SelectorOverlayVC: UIViewController {
     }
 
     @objc private func nextTapped() {
-        let selectedRect: CGRect?
-        switch mode {
-        case .element: selectedRect = highlighter.selectedRectInView
-        case .crop: selectedRect = cropView.cropRectInView
-        }
-        guard let rect = selectedRect, rect.width > 4, rect.height > 4 else {
-            flashHint(text: mode == .element ? "Tap an element first" : "Draw a region first")
+        guard let rect = cropView.cropRectInView, rect.width > 4, rect.height > 4 else {
+            flashHint(text: "Draw a region first")
             return
         }
         let cropped = crop(image: snapshot, rectInView: rect) ?? snapshot
