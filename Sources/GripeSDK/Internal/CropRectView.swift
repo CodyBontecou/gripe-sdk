@@ -10,6 +10,9 @@ final class CropRectView: UIView {
     private let dim = CAShapeLayer()
     private var cornerHandles: [CAShapeLayer] = []
     private var dragMode: DragMode?
+    private var pinchInitialRect: CGRect?
+
+    private static let minCropSize: CGFloat = 40
 
     private enum DragMode {
         case create(start: CGPoint)
@@ -50,6 +53,9 @@ final class CropRectView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
+
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        addGestureRecognizer(pinch)
     }
 
     func configure(imageRect: @escaping () -> CGRect) {
@@ -105,6 +111,36 @@ final class CropRectView: UIView {
             break
         }
         updatePaths()
+    }
+
+    @objc private func handlePinch(_ pinch: UIPinchGestureRecognizer) {
+        guard let imageRect = imageRectProvider?() else { return }
+        switch pinch.state {
+        case .began:
+            pinchInitialRect = cropRectInView
+        case .changed:
+            guard let initial = pinchInitialRect else { return }
+            let scale = max(pinch.scale, 0.01)
+            let maxW = imageRect.width
+            let maxH = imageRect.height
+            let minSize = Self.minCropSize
+            let newW = min(max(initial.width * scale, minSize), maxW)
+            let newH = min(max(initial.height * scale, minSize), maxH)
+            let centerX = initial.midX
+            let centerY = initial.midY
+            var originX = centerX - newW / 2
+            var originY = centerY - newH / 2
+            originX = min(max(originX, imageRect.minX), imageRect.maxX - newW)
+            originY = min(max(originY, imageRect.minY), imageRect.maxY - newH)
+            cropRectInView = CGRect(x: originX, y: originY, width: newW, height: newH)
+            updatePaths()
+            onSelectionChanged?()
+        case .ended, .cancelled, .failed:
+            pinchInitialRect = nil
+            onSelectionChanged?()
+        default:
+            break
+        }
     }
 
     private func clamp(_ p: CGPoint, to rect: CGRect) -> CGPoint {
