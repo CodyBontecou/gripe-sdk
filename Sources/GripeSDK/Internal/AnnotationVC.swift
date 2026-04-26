@@ -46,7 +46,6 @@ private enum AnnotationPalette {
 final class AnnotationCanvasView: UIView, UITextFieldDelegate {
     var image: UIImage? {
         didSet {
-            imageView.image = image
             setNeedsLayout()
             setNeedsDisplay()
         }
@@ -65,7 +64,6 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
     private var dragStart: CGPoint?
     private var liveTextField: UITextField?
 
-    private let imageView = UIImageView()
     private let pan = UIPanGestureRecognizer()
     private let tap = UITapGestureRecognizer()
 
@@ -77,18 +75,6 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
         backgroundColor = .clear
         isOpaque = false
         contentMode = .redraw
-
-        imageView.contentMode = .scaleAspectFit
-        imageView.isUserInteractionEnabled = false
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
 
         pan.addTarget(self, action: #selector(handlePan(_:)))
         tap.addTarget(self, action: #selector(handleTap(_:)))
@@ -176,6 +162,9 @@ final class AnnotationCanvasView: UIView, UITextFieldDelegate {
 
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        if let image = image {
+            image.draw(in: imageRect)
+        }
         let viewTransform: (CGPoint) -> CGPoint = { [weak self] p in self?.denormalize(p) ?? .zero }
         for ann in annotations { draw(annotation: ann, in: ctx, transform: viewTransform, scale: 1) }
         if let inProgress { draw(annotation: inProgress, in: ctx, transform: viewTransform, scale: 1) }
