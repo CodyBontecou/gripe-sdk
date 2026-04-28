@@ -66,6 +66,7 @@ Before writing changes, confirm:
 - The `ENTRYPOINT` file you'll edit
 - Whether to use the **git URL** (default, recommended) or a **local path** to a checkout of `gripe-sdk` (useful for SDK development — pass `--local-path /path/to/gripe-sdk`)
 - The API key to insert. If the user doesn't have one, insert the placeholder `"REPLACE_ME"` and tell them where to swap it.
+- **The destination GitHub repo** for gripes (e.g. `"CodyBontecou/MyApp"`). This is **required** unless the backend has a `GITHUB_REPO` default configured — without it, the hosted backend at `gripe.isolated.tech` returns `400 repository_required` on every submit. Always ask: "What `owner/repo` should bug reports file into?" If the user is unsure, default to the same repo the app source lives in.
 
 Default to git URL + `from: "0.2.0"` unless the user asks for `branch: "main"` or local path.
 
@@ -117,6 +118,7 @@ struct MyApp: App {
         #if DEBUG
         Gripe.start(
             apiKey: "REPLACE_ME",
+            repository: "OWNER/REPO",
             environment: .debug,
             installer: "claude-code"
         )
@@ -125,6 +127,8 @@ struct MyApp: App {
     var body: some Scene { /* ... */ }
 }
 ```
+
+Substitute `"OWNER/REPO"` with the value confirmed in Step 2. **Don't ship a placeholder here** — without a real value the backend returns 400.
 
 If an `init()` already exists, add the `Gripe.start` call inside it, after any existing setup. Don't overwrite existing init body.
 
@@ -142,6 +146,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         #if DEBUG
         Gripe.start(
             apiKey: "REPLACE_ME",
+            repository: "OWNER/REPO",
             environment: .debug,
             installer: "claude-code"
         )

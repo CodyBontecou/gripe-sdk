@@ -28,7 +28,9 @@ Parse the `KEY=VALUE` output: `KIND`, `PROJECT`, `APP_TARGET`, `ENTRYPOINT`, `EN
 
 ## 3. Confirm with the user
 
-Show the detected `APP_TARGET` and `ENTRYPOINT`. Ask for the API key or use `"REPLACE_ME"`.
+Show the detected `APP_TARGET` and `ENTRYPOINT`. Ask for:
+- The API key (or use `"REPLACE_ME"`).
+- **The destination GitHub repo** (`owner/repo`). **Required** for the hosted backend at `gripe.isolated.tech` — without it every submit returns `400 repository_required`. If unsure, default to the same repo the app source lives in.
 
 ## 4. Add the package
 
@@ -53,6 +55,7 @@ init() {
     #if DEBUG
     Gripe.start(
         apiKey: "REPLACE_ME",
+        repository: "OWNER/REPO",
         environment: .debug,
         installer: "windsurf"
     )
@@ -68,13 +71,14 @@ import GripeSDK
 #if DEBUG
 Gripe.start(
     apiKey: "REPLACE_ME",
+    repository: "OWNER/REPO",
     environment: .debug,
     installer: "windsurf"
 )
 #endif
 ```
 
-If `init()` already exists in the SwiftUI app, append to it — don't overwrite.
+Substitute `"OWNER/REPO"` with the value confirmed in step 3. If `init()` already exists in the SwiftUI app, append to it — don't overwrite.
 
 ## 6. Build to verify
 

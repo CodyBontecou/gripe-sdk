@@ -25,7 +25,9 @@ If the user cloned elsewhere, ask once and reuse that path.
    ```
    Parse `KIND`, `PROJECT`, `APP_TARGET`, `ENTRYPOINT`, `ENTRYPOINT_KIND`, `MIN_IOS`. If `MIN_IOS` < `15.0`, stop and ask before bumping.
 
-2. **Confirm**: show the detected scheme/entrypoint to the user; ask for the API key or use `"REPLACE_ME"`.
+2. **Confirm**: show the detected scheme/entrypoint to the user. Ask for:
+   - The API key (or use `"REPLACE_ME"`).
+   - **The destination GitHub repo** (`owner/repo`). **Required** for the hosted backend — without it every submit returns `400 repository_required`. Default to the same repo the app source lives in if the user is unsure.
 
 3. **Add the package**:
    ```bash
@@ -45,6 +47,7 @@ If the user cloned elsewhere, ask once and reuse that path.
          #if DEBUG
          Gripe.start(
              apiKey: "REPLACE_ME",
+             repository: "OWNER/REPO",
              environment: .debug,
              installer: "codex"
          )
@@ -59,13 +62,14 @@ If the user cloned elsewhere, ask once and reuse that path.
      #if DEBUG
      Gripe.start(
          apiKey: "REPLACE_ME",
+         repository: "OWNER/REPO",
          environment: .debug,
          installer: "codex"
      )
      #endif
      ```
 
-   Don't overwrite an existing `init()` body — append to it.
+   Substitute `"OWNER/REPO"` with the value confirmed in step 2. Don't overwrite an existing `init()` body — append to it.
 
 5. **Build to verify**:
    ```bash
