@@ -70,7 +70,16 @@ enum MetadataCollector {
               let window = scene.keyWindow ?? scene.windows.first,
               var top = window.rootViewController else { return nil }
         while let presented = top.presentedViewController { top = presented }
-        return String(describing: type(of: top))
+        // Skip Gripe's own UI so we report the host app's view, not our composer.
+        var candidate: UIViewController? = top
+        while let vc = candidate, isGripeInternal(vc) {
+            candidate = vc.presentingViewController
+        }
+        return String(describing: type(of: candidate ?? top))
+    }
+
+    private static func isGripeInternal(_ vc: UIViewController) -> Bool {
+        String(reflecting: type(of: vc)).hasPrefix("GripeSDK.")
     }
 }
 #endif
