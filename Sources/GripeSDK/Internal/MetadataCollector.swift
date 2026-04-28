@@ -1,7 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 
-struct GripeMetadata: Encodable {
+struct GripeMetadata: Codable {
     let appVersion: String
     let build: String
     let bundleIdentifier: String
@@ -13,12 +13,20 @@ struct GripeMetadata: Encodable {
     let capturedAt: Date
     let viewControllerName: String?
     let locale: String
+    let environment: String
+    let sdkVersion: String
+    let protocolVersion: String
+    let installer: String?
 }
 
 enum MetadataCollector {
     static func collect() -> GripeMetadata {
         let info = Bundle.main.infoDictionary ?? [:]
         let screen = currentScreenSize()
+        let config = Gripe.shared.configuration
+        let environment = config?.environment.rawValue ?? Gripe.Environment.debug.rawValue
+        let installer = (config?.telemetry ?? true) ? config?.installer : nil
+
         return GripeMetadata(
             appVersion: info["CFBundleShortVersionString"] as? String ?? "?",
             build: info["CFBundleVersion"] as? String ?? "?",
@@ -30,7 +38,11 @@ enum MetadataCollector {
             screenHeight: screen.height,
             capturedAt: Date(),
             viewControllerName: topViewControllerName(),
-            locale: Locale.current.identifier
+            locale: Locale.current.identifier,
+            environment: environment,
+            sdkVersion: Gripe.sdkVersion,
+            protocolVersion: GripeAPIClient.protocolVersion,
+            installer: installer
         )
     }
 

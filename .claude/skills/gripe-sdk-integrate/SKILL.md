@@ -29,9 +29,12 @@ Gripe.start(apiKey: "<API_KEY>")
 `Gripe.start` installs a hidden gesture (3 taps with 2 fingers) on every `UIWindow`. When triggered it snapshots the screen and presents the crop / annotate / submit flow. The SDK supports iOS 15+ and is UIKit-based but works inside SwiftUI apps because they sit on top of `UIWindow`.
 
 Optional parameters on `Gripe.start`:
-- `endpoint: URL` — backend (default `https://api.gripe.dev/v1/reports`)
+- `endpoint: URL` — backend (default `https://gripe.isolated.tech/v1/reports`)
 - `dryRun: Bool` — when `true`, the backend echoes back without filing a GitHub issue
 - `repository: String?` — `"owner/repo"` to override server default
+- `environment: Gripe.Environment` — `.debug` (default), `.staging`, or `.production`. Tagged on every report so you can filter `.debug` noise from real users in the dashboard.
+- `installer: String?` — installer attribution. **When this skill inserts the call, always set `installer: "claude-code"`** so installs done via Claude Code are visible in the dashboard. Other agent-specific copies of this skill set their own value (`"cursor"`, `"codex"`, `"windsurf"`).
+- `telemetry: Bool` — defaults to `true`. When `false`, the SDK omits installer attribution from reports. Honor user requests to set this to `false`.
 
 `Gripe.stop()` uninstalls the gesture. `Gripe.trigger()` opens the flow programmatically.
 
@@ -64,7 +67,7 @@ Before writing changes, confirm:
 - Whether to use the **git URL** (default, recommended) or a **local path** to a checkout of `gripe-sdk` (useful for SDK development — pass `--local-path /path/to/gripe-sdk`)
 - The API key to insert. If the user doesn't have one, insert the placeholder `"REPLACE_ME"` and tell them where to swap it.
 
-Default to git URL + `from: "0.1.0"` unless the user asks for `branch: "main"` or local path.
+Default to git URL + `from: "0.2.0"` unless the user asks for `branch: "main"` or local path.
 
 ### Step 3 — Add the package dependency
 
@@ -112,7 +115,11 @@ import GripeSDK
 struct MyApp: App {
     init() {
         #if DEBUG
-        Gripe.start(apiKey: "REPLACE_ME")
+        Gripe.start(
+            apiKey: "REPLACE_ME",
+            environment: .debug,
+            installer: "claude-code"
+        )
         #endif
     }
     var body: some Scene { /* ... */ }
@@ -133,7 +140,11 @@ import GripeSDK
 class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         #if DEBUG
-        Gripe.start(apiKey: "REPLACE_ME")
+        Gripe.start(
+            apiKey: "REPLACE_ME",
+            environment: .debug,
+            installer: "claude-code"
+        )
         #endif
         return true
     }

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 GIT_URL="https://github.com/CodyBontecou/gripe-sdk.git"
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 PKG=""
 TARGET=""

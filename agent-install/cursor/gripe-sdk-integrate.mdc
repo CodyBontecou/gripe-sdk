@@ -1,0 +1,113 @@
+---
+description: Integrate the GripeSDK in-app feedback library into this iOS app. Adds the Swift package dependency, imports GripeSDK, and inserts a #if DEBUG-gated Gripe.start(...) call so a 3-tap-2-finger gesture opens the bug-report capture flow.
+globs:
+  - "**/*.swift"
+  - "**/Package.swift"
+  - "**/*.xcodeproj/**"
+  - "**/*.xcworkspace/**"
+alwaysApply: false
+---
+
+# GripeSDK installer (Cursor)
+
+When the user says "add gripe", "integrate gripe-sdk", "wire up gripe", or similar, perform the steps below. **Always set `installer: "cursor"`** in the inserted `Gripe.start(...)` call so the install is attributed correctly in the gripe.isolated.tech dashboard.
+
+## Prerequisite
+
+The install scripts live in the cloned `gripe-sdk` repo. Default path:
+
+```bash
+SKILL_DIR="$HOME/src/gripe-sdk/.claude/skills/gripe-sdk-integrate"
+[ -d "$HOME/src/gripe-sdk" ] || git clone https://github.com/CodyBontecou/gripe-sdk.git "$HOME/src/gripe-sdk"
+```
+
+If the user cloned elsewhere, ask once and reuse that path.
+
+## Workflow
+
+### 1. Detect the project
+
+```bash
+bash "$SKILL_DIR/scripts/detect-project.sh" .
+```
+
+Parse the `KEY=VALUE` output: `KIND`, `PROJECT`, `APP_TARGET`, `ENTRYPOINT`, `ENTRYPOINT_KIND`, `MIN_IOS`. If `MIN_IOS` < `15.0`, stop and ask the user before bumping.
+
+### 2. Confirm with the user
+
+Show them the detected `APP_TARGET`, `ENTRYPOINT`, and ask for the API key (or use `"REPLACE_ME"` as a placeholder).
+
+### 3. Add the dependency
+
+For SPM apps:
+```bash
+bash "$SKILL_DIR/scripts/add-package-spm.sh" --package <Package.swift> --target <APP_TARGET> --source git
+```
+
+For Xcode projects:
+```bash
+ruby "$SKILL_DIR/scripts/add-package-xcodeproj.rb" --project <App.xcodeproj> --target <APP_TARGET> --source git
+```
+
+### 4. Insert `Gripe.start(...)` into the entrypoint
+
+Edit the entrypoint file directly. **Do not let the script do this** — Cursor's edit tools handle Swift better than `sed`.
+
+For SwiftUI (`@main struct ... : App`):
+
+```swift
+import GripeSDK
+
+// Inside the App struct:
+init() {
+    #if DEBUG
+    Gripe.start(
+        apiKey: "REPLACE_ME",
+        environment: .debug,
+        installer: "cursor"
+    )
+    #endif
+}
+```
+
+For UIKit `AppDelegate`:
+
+```swift
+import GripeSDK
+
+// Inside application(_:didFinishLaunchingWithOptions:):
+#if DEBUG
+Gripe.start(
+    apiKey: "REPLACE_ME",
+    environment: .debug,
+    installer: "cursor"
+)
+#endif
+```
+
+If `init()` already exists in the SwiftUI app, add the `Gripe.start` call at the end of the existing body — don't overwrite it.
+
+### 5. Build to verify
+
+```bash
+# SPM
+swift build --package-path <package_dir>
+
+# Xcode
+xcodebuild -project <App.xcodeproj> -scheme <APP_TARGET> \
+  -destination 'generic/platform=iOS Simulator' \
+  -resolvePackageDependencies
+xcodebuild -project <App.xcodeproj> -scheme <APP_TARGET> \
+  -destination 'generic/platform=iOS Simulator' \
+  -configuration Debug build CODE_SIGNING_ALLOWED=NO
+```
+
+### 6. Tell the user how to test
+
+Two-finger 3-tap anywhere in the app to open the report flow. Replace `"REPLACE_ME"` with the real API key from the gripe.isolated.tech dashboard, or set `dryRun: true` to test without filing issues.
+
+## Notes
+
+- Don't ship API keys in source. Recommend `.xcconfig` + `Info.plist` injection for non-debug builds.
+- Gripe.start is gated by `#if DEBUG` by default. Don't remove that gate without explicit user confirmation.
+- If the user prefers no install attribution, set `telemetry: false` in the call (or omit `installer:`).

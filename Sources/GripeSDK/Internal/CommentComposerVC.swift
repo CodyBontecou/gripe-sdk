@@ -256,13 +256,66 @@ final class CommentComposerVC: UIViewController {
             dismiss(animated: true) { onFinished() }
         case .failure(let error):
             setBusy(false)
-            let alert = UIAlertController(
-                title: "Couldn't submit",
-                message: error.localizedDescription,
-                preferredStyle: .alert
-            )
+            presentFailureAlert(for: error, title: title, tags: tags)
+        }
+    }
+
+    private func presentFailureAlert(for error: Error, title: String, tags: [String]) {
+        let copy = Self.failureCopy(for: error)
+        let alert = UIAlertController(title: copy.title, message: copy.message, preferredStyle: .alert)
+        if copy.allowRetry {
+            alert.addAction(UIAlertAction(title: "Try Again", style: .default) { [weak self] _ in
+                self?.submitTapped()
+            })
+            alert.addAction(UIAlertAction(title: "Close", style: .cancel) { [weak self] _ in
+                self?.onFinished()
+            })
+        } else {
             alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
+        }
+        present(alert, animated: true)
+    }
+
+    private static func failureCopy(for error: Error) -> (title: String, message: String, allowRetry: Bool) {
+        guard let gripe = error as? GripeError else {
+            return ("Couldn't submit", error.localizedDescription, true)
+        }
+        switch gripe {
+        case .unauthorized:
+            return (
+                "API key was rejected",
+                "Check your API key in the gripe.isolated.tech dashboard, then call Gripe.start again.",
+                false
+            )
+        case .rateLimited(let retryAfter):
+            let after = retryAfter.map { " in \(Int($0.rounded()))s" } ?? ""
+            return (
+                "Slow down a bit",
+                "We've saved this report and will retry\(after) the next time the app launches.",
+                false
+            )
+        case .network:
+            return (
+                "Saved for later",
+                "Looks like you're offline. Your report is queued and will send next time the app has connectivity.",
+                false
+            )
+        case .serverError(let code, _):
+            return (
+                "Server hiccup (\(code))",
+                "We've saved your report and will retry on the next app launch.",
+                true
+            )
+        case .invalidResponse:
+            return (
+                "Unexpected server response",
+                "The server replied in a format we don't understand. Try updating GripeSDK or contact support.",
+                false
+            )
+        case .encodingFailed:
+            return ("Couldn't encode screenshot", "Try capturing a smaller area.", true)
+        case .notConfigured:
+            return ("Gripe isn't configured", "Call Gripe.start(apiKey:) at app launch.", false)
         }
     }
 }

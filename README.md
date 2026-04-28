@@ -1,11 +1,13 @@
 # GripeSDK
 
-In-app feedback for iOS apps. Drop one line into your app, and a hidden 3-tap / 2-finger gesture opens a screen-snapshot, crop, annotate, and submit flow that files a GitHub issue automatically.
+**AI-installed in-app feedback for iOS.** Drop one line into your app — or ask your coding agent to do it for you — and a hidden 3-tap / 2-finger gesture opens a screenshot → crop → annotate → submit flow that files a GitHub issue automatically.
 
-- **One-call install** — `Gripe.start(apiKey: ...)` in your `App.init` or `AppDelegate`.
+- **AI-native install** — say "add gripe to this app" to Claude Code, Cursor, Codex, or Windsurf.
+- **One-call manual install** — `Gripe.start(apiKey: ...)` in your `App.init` or `AppDelegate`.
 - **No UI changes required** — gesture is attached to every `UIWindow`. SwiftUI and UIKit both work.
 - **Annotate before submitting** — crop, draw, type, tag.
-- **Auto-collected metadata** — device, OS, app version, locale, timestamp.
+- **Auto-collected metadata** — device, OS, app version, locale, view controller, timestamp.
+- **Offline-safe** — failed submissions are persisted to disk and retried automatically on the next launch.
 - **GitHub-backed** — reports land as issues in the repo of your choice.
 
 ## Requirements
@@ -13,20 +15,42 @@ In-app feedback for iOS apps. Drop one line into your app, and a hidden 3-tap / 
 - iOS 15+
 - Swift 5.7+
 
-## Install
+## Install with an AI agent (recommended)
 
-### Swift Package Manager (Xcode)
+If you use a coding agent, the fastest path is to let it do the install. The repo ships a [Claude Code](https://docs.anthropic.com/claude-code) skill, plus parallel rules/workflows for Cursor, Codex CLI, and Windsurf — all driving the same shell scripts under `.claude/skills/gripe-sdk-integrate/scripts/`.
+
+```bash
+# One-time: clone the SDK so your agent can find the install bundle.
+git clone https://github.com/CodyBontecou/gripe-sdk.git ~/src/gripe-sdk
+
+# Claude Code
+ln -s ~/src/gripe-sdk/.claude/skills/gripe-sdk-integrate ~/.claude/skills/gripe-sdk-integrate
+
+# Cursor / Codex / Windsurf — see the matching rule files in this repo and copy alongside your project.
+```
+
+Then, in the iOS app you want to instrument, ask your agent:
+
+> "Add gripe-sdk to this app."
+
+The agent will detect your project, add the package dependency, and insert a `#if DEBUG`-gated `Gripe.start(...)` call into your entrypoint with `installer: "claude-code"` (or whichever agent it is) so installs are attributed.
+
+See [`.claude/skills/gripe-sdk-integrate/`](./.claude/skills/gripe-sdk-integrate) for the full skill source and the manual scripts.
+
+## Manual install (Swift Package Manager)
+
+### Xcode
 
 1. **File → Add Package Dependencies…**
 2. Enter `https://github.com/CodyBontecou/gripe-sdk.git`.
-3. Set the version rule to **Up to Next Major** from `0.1.0` (latest tagged release).
+3. Set the version rule to **Up to Next Major** from `0.2.0` (latest tagged release).
 4. Add the `GripeSDK` library to your app target.
 
 ### Package.swift
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/CodyBontecou/gripe-sdk.git", from: "0.1.0"),
+    .package(url: "https://github.com/CodyBontecou/gripe-sdk.git", from: "0.2.0"),
 ],
 targets: [
     .target(
@@ -48,7 +72,7 @@ import GripeSDK
 struct MyApp: App {
     init() {
         #if DEBUG
-        Gripe.start(apiKey: "YOUR_API_KEY")
+        Gripe.start(apiKey: "YOUR_API_KEY", environment: .debug)
         #endif
     }
 
@@ -69,7 +93,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         #if DEBUG
-        Gripe.start(apiKey: "YOUR_API_KEY")
+        Gripe.start(apiKey: "YOUR_API_KEY", environment: .debug)
         #endif
         return true
     }
@@ -78,15 +102,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 Then **3-tap with 2 fingers** anywhere in the app to open the report flow.
 
-### API surface
+## API surface
 
 ```swift
-// Start (typically once at launch)
 Gripe.start(
     apiKey: String,
-    endpoint: URL = URL(string: "https://api.gripe.dev/v1/reports")!,
-    dryRun: Bool = false,            // backend echoes without filing an issue
-    repository: String? = nil        // "owner/repo" override
+    endpoint: URL = URL(string: "https://gripe.isolated.tech/v1/reports")!,
+    dryRun: Bool = false,                           // backend echoes without filing an issue
+    repository: String? = nil,                      // "owner/repo" override
+    environment: Gripe.Environment = .debug,        // .debug / .staging / .production
+    installer: String? = nil,                       // e.g. "claude-code", "cursor"; set by the install skill
+    telemetry: Bool = true                          // when false, omits installer attribution from reports
 )
 
 // Open the capture flow programmatically (e.g. from a debug menu)
@@ -96,7 +122,21 @@ Gripe.trigger()
 Gripe.stop()
 ```
 
-### Recommended: gate behind `#if DEBUG`
+### `environment`
+
+Tagged on every report so you can filter `.debug` noise from real beta/production feedback in the dashboard. Defaults to `.debug` because we recommend `#if DEBUG`-gating `Gripe.start` — flip to `.staging` or `.production` only when you've thought about the privacy implications of capturing screenshots from real users.
+
+### `installer`
+
+Free-form string the install skill stamps on reports. Useful for attribution ("how many of our users installed via Claude Code?"). Honored only when `telemetry: true`.
+
+### `telemetry`
+
+Controls whether the SDK attaches install-attribution metadata (`installer`, SDK version) to reports. Set to `false` to opt out — feedback reports themselves still go through; only the meta-fields about who installed the SDK are dropped.
+
+## Recommended hygiene
+
+### Gate behind `#if DEBUG`
 
 Keep `Gripe.start` inside `#if DEBUG` so the gesture and code path don't ship to production users by default.
 
@@ -104,44 +144,19 @@ Keep `Gripe.start` inside `#if DEBUG` so the gesture and code path don't ship to
 
 Use an `.xcconfig`, environment variable, or `Info.plist` build setting to inject the API key at build time. `"REPLACE_ME"` literals are fine for the first wire-up but should not be committed.
 
-## Agent integration
+## What happens when submission fails
 
-This repo ships with a [Claude Code](https://docs.anthropic.com/claude-code) skill that automates SDK integration into another iOS app. The skill detects the target project, adds the package dependency, and inserts `Gripe.start(...)` into the right entrypoint.
+GripeSDK persists failed reports to `Application Support/Gripe/queue/` and retries them in the background on the next call to `Gripe.start`:
 
-Skill source: [`.claude/skills/gripe-sdk-integrate/`](./.claude/skills/gripe-sdk-integrate)
+- **Network or server errors** → queued, retried silently next launch.
+- **Rate-limited (`429`)** → queued, drained respecting `Retry-After`.
+- **Unauthorized (`401`/`403`)** → not retried (treated as permanent until `Gripe.start` is called with a new key).
+- **Encoding / invalid response errors** → not retried; surfaced to the user immediately.
 
-### Install the skill
-
-```bash
-git clone https://github.com/CodyBontecou/gripe-sdk.git ~/src/gripe-sdk
-
-# Symlink so `git pull` keeps it current:
-ln -s ~/src/gripe-sdk/.claude/skills/gripe-sdk-integrate ~/.claude/skills/gripe-sdk-integrate
-
-# Or copy as a one-shot:
-# cp -R ~/src/gripe-sdk/.claude/skills/gripe-sdk-integrate ~/.claude/skills/
-```
-
-Restart Claude Code so it indexes the new skill.
-
-### Use it
-
-Open Claude Code in **the iOS app** you want to add Gripe to, then either:
-
-```
-/gripe-sdk-integrate
-```
-
-…or just say "add gripe-sdk to this app" / "wire up gripe". The agent will:
-
-1. Detect `.xcodeproj` / `.xcworkspace` / `Package.swift` and your `@main` entrypoint.
-2. Confirm the target scheme and entrypoint with you.
-3. Add the `GripeSDK` package dependency.
-4. Insert `import GripeSDK` and a `#if DEBUG`-gated `Gripe.start(apiKey: "REPLACE_ME")` call.
-5. Resolve packages and run a sanity build.
-
-See [`.claude/skills/gripe-sdk-integrate/README.md`](./.claude/skills/gripe-sdk-integrate/README.md) for manual script usage and `--source local --local-path …` mode for SDK developers.
+The queue is capped at 25 items and 7 days; older entries are dropped quietly.
 
 ## License
 
-TBD
+The Swift SDK in this repository is released under the [MIT License](./LICENSE).
+
+The hosted backend at `gripe.isolated.tech` is a closed-source SaaS. The SDK is free to use against any compatible backend; bring-your-own-server is supported (`Gripe.start(endpoint:)`).
