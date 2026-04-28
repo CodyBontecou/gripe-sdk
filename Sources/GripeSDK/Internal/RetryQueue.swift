@@ -69,7 +69,7 @@ final class RetryQueue {
     }
 
     private func flush() async {
-        let snapshot: [(URL, QueuedReport)] = {
+        let snapshot: [(url: URL, report: QueuedReport)] = {
             lock.lock(); defer { lock.unlock() }
             return listEntriesLocked()
         }()
@@ -104,16 +104,16 @@ final class RetryQueue {
         ) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let entries: [(URL, QueuedReport)] = urls.compactMap { url in
+        let entries: [(url: URL, report: QueuedReport)] = urls.compactMap { url in
             guard url.pathExtension == "json",
                   let data = try? Data(contentsOf: url),
                   let report = try? decoder.decode(QueuedReport.self, from: data) else {
                 try? FileManager.default.removeItem(at: url)
                 return nil
             }
-            return (url, report)
+            return (url: url, report: report)
         }
-        return entries.sorted { $0.1.createdAt < $1.1.createdAt }
+        return entries.sorted { $0.report.createdAt < $1.report.createdAt }
     }
 
     private func expired(_ entry: (url: URL, report: QueuedReport)) -> Bool {
