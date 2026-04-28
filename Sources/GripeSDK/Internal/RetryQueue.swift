@@ -56,7 +56,7 @@ final class RetryQueue {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(report)
             try data.write(to: url, options: .atomic)
-            evictIfNeeded()
+            evictIfNeededLocked()
         } catch {
             // Best-effort persistence; if we can't write, the report is simply lost.
         }
@@ -69,7 +69,11 @@ final class RetryQueue {
     }
 
     private func flush() async {
-        for entry in listEntries() {
+        let snapshot: [(URL, QueuedReport)] = {
+            lock.lock(); defer { lock.unlock() }
+            return listEntriesLocked()
+        }()
+        for entry in snapshot {
             if expired(entry) {
                 try? FileManager.default.removeItem(at: entry.url)
                 continue
@@ -91,8 +95,8 @@ final class RetryQueue {
         }
     }
 
-    private func listEntries() -> [(url: URL, report: QueuedReport)] {
-        lock.lock(); defer { lock.unlock() }
+    /// Caller must hold `lock`.
+    private func listEntriesLocked() -> [(url: URL, report: QueuedReport)] {
         guard let urls = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
@@ -116,8 +120,9 @@ final class RetryQueue {
         Date().timeIntervalSince(entry.report.createdAt) > maxAge
     }
 
-    private func evictIfNeeded() {
-        let entries = listEntries()
+    /// Caller must hold `lock`.
+    private func evictIfNeededLocked() {
+        let entries = listEntriesLocked()
         guard entries.count > maxItems else { return }
         let extra = entries.count - maxItems
         for i in 0..<extra {

@@ -61,10 +61,13 @@ enum GripeError: LocalizedError {
     }
 
     /// Whether the SDK should keep this submission in the retry queue.
+    /// 4xx (other than 429) means the payload is bad; retry won't help.
     var isTransient: Bool {
         switch self {
-        case .rateLimited, .serverError, .network:
+        case .rateLimited, .network:
             return true
+        case .serverError(let code, _):
+            return code >= 500
         case .notConfigured, .encodingFailed, .unauthorized, .invalidResponse:
             return false
         }

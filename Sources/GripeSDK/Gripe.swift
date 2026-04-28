@@ -37,7 +37,7 @@ public final class Gripe {
     }
 
     public static let shared = Gripe()
-    public static let sdkVersion = "0.2.0"
+    public static let sdkVersion = "0.2.1"
 
     var configuration: Configuration?
     private let installer = GestureInstaller()
