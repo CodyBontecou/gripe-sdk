@@ -129,5 +129,24 @@ final class RetryQueue {
             try? FileManager.default.removeItem(at: entries[i].url)
         }
     }
+
+    // MARK: - Test hooks
+
+    #if DEBUG
+    /// Returns a snapshot of queued entries. Test-only.
+    /// The labeled tuple type is the regression guard for the 0.2.1 flush() bug.
+    func snapshotForTesting() -> [(url: URL, report: QueuedReport)] {
+        lock.lock(); defer { lock.unlock() }
+        return listEntriesLocked()
+    }
+
+    /// Removes every persisted entry. Test-only.
+    func purgeForTesting() {
+        lock.lock(); defer { lock.unlock() }
+        for entry in listEntriesLocked() {
+            try? FileManager.default.removeItem(at: entry.url)
+        }
+    }
+    #endif
 }
 #endif
